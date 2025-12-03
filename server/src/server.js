@@ -26,6 +26,9 @@ const { Server } = require('socket.io');
 const { PORT, NODE_ENV } = require('./config/env');
 const logger = require('./utils/logger');
 const healthRoutes = require('./http/routes/healthRoutes');
+const gamesRoutes = require('./http/routes/gamesRoutes');
+const questionsRoutes = require('./http/routes/questionsRoutes');
+
 
 /**
  * Creates and configures the Express application instance.
@@ -35,18 +38,16 @@ const healthRoutes = require('./http/routes/healthRoutes');
 function createExpressApp() {
   const app = express();
 
-  // Enable CORS for all origins for now.
-  // You can later restrict this to specific domains.
   app.use(cors());
-
-  // Enable JSON body parsing for incoming requests.
   app.use(express.json());
 
-  // Mount HTTP routes.
   app.use('/', healthRoutes);
+  app.use('/api/games', gamesRoutes);
+  app.use('/api/questions', questionsRoutes);
 
   return app;
 }
+
 
 /**
  * Initializes the Socket.io server and attaches basic connection logging.
