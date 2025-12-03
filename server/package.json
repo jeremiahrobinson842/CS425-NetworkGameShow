@@ -1,0 +1,27 @@
+{
+  "name": "network-game-show-server",
+  "version": "1.0.0",
+  "description": "Backend server for Network Game Show (real-time multiplayer networking quiz).",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "keywords": [
+    "network-game-show",
+    "real-time",
+    "socket.io",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
+    "socket.io": "^4.8.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
