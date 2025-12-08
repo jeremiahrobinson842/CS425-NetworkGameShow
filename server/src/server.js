@@ -26,40 +26,8 @@ const questionsRoutes = require('./http/routes/questionsRoutes');
 const { query } = require('./config/db');
 const { computeScore } = require('./sockets/scoring');
 
-/**
- * In-memory game room state.
- *
- * Map<gameCode, {
- *   gameId: number,
- *   status: 'waiting' | 'in_progress' | 'completed',
- *   timePerQuestion: number,
- *   questions: Array<DBQuestionRow>,
- *   currentQuestionIndex: number,
- *   players: Map<socketId, {
- *     username: string,
- *     isHost: boolean,
- *     totalScore: number,
- *     answers: Record<questionId, {
- *       chosenOption: 'A'|'B'|'C'|'D',
- *       isCorrect: boolean,
- *       points: number,
- *       elapsedMs: number,
- *       suspicious: boolean
- *     }>
- *   }>,
- *   hostSocketId: string | null,
- *   currentQuestionStartTime: number | null,
- *   currentQuestionActive: boolean,
- *   currentQuestionTimeout: NodeJS.Timeout | null
- * }>
- */
 const gameRooms = new Map();
 
-/**
- * Creates and configures the Express application instance.
- *
- * @returns {express.Express} Configured Express app.
- */
 function createExpressApp() {
   const app = express();
 
@@ -73,18 +41,64 @@ function createExpressApp() {
   return app;
 }
 
+
 /**
- * Helper to build a simple player list for the client.
+ * Helper to build a simple player list for the lobby/client.
+ * Only includes currently connected players (disconnected are hidden from lobby).
  *
- * @param {Map<string, { username: string, isHost: boolean, totalScore?: number }>} playersMap
+ * @param {Map<string, { username: string, isHost: boolean, totalScore?: number, disconnected?: boolean }>} playersMap
  * @returns {Array<{ username: string, isHost: boolean, totalScore?: number }>}
  */
 function buildPlayerList(playersMap) {
-  return Array.from(playersMap.values()).map((p) => ({
-    username: p.username,
-    isHost: p.isHost,
-    totalScore: p.totalScore
-  }));
+  return Array.from(playersMap.values())
+    .filter((p) => !p.disconnected)
+    .map((p) => ({
+      username: p.username,
+      isHost: p.isHost,
+      totalScore: p.totalScore
+    }));
+}
+
+/**
+ * Builds the leaderboard used for question_ended and game_ended.
+ * Includes correctness and response time stats, as well as disconnected flag.
+ *
+ * @param {ReturnType<typeof gameRooms.get>} room
+ * @returns {Array<{ rank: number, username: string, totalScore: number, correctAnswers: number, avgResponseMs: number|null, disconnected?: boolean }>}
+ */
+function buildLeaderboard(room) {
+  const raw = Array.from(room.players.values()).map((p) => {
+    const answers = Object.values(p.answers || {});
+    const answeredCount = answers.length;
+    const correctAnswers = answers.filter((a) => a.isCorrect).length;
+
+    const avgResponseMs =
+      answeredCount > 0
+        ? Math.round(
+            answers.reduce((sum, a) => sum + (a.elapsedMs || 0), 0) /
+              answeredCount
+          )
+        : null;
+
+    return {
+      username: p.username,
+      totalScore: p.totalScore || 0,
+      correctAnswers,
+      avgResponseMs,
+      disconnected: !!p.disconnected
+    };
+  });
+
+  return raw
+    .sort((a, b) => b.totalScore - a.totalScore)
+    .map((p, i) => ({
+      rank: i + 1,
+      username: p.username,
+      totalScore: p.totalScore,
+      correctAnswers: p.correctAnswers,
+      avgResponseMs: p.avgResponseMs,
+      disconnected: p.disconnected
+    }));
 }
 
 /**
@@ -106,6 +120,98 @@ function broadcastPlayerList(io, gameCode) {
 }
 
 /**
+ * Final game end handler. Persists participants, emits game_ended.
+ *
+ * @param {Server} io
+ * @param {string} gameCode
+ * @param {number} totalQuestionsActuallyPlayed
+ * @param {Array} [precomputedLeaderboard]
+ */
+async function endGame(io, gameCode, totalQuestionsActuallyPlayed, precomputedLeaderboard) {
+  const room = gameRooms.get(gameCode);
+  if (!room) {
+    logger.warn('Attempted to end game for unknown gameCode', { gameCode });
+    return;
+  }
+
+  room.status = 'completed';
+
+  const leaderboard = precomputedLeaderboard || buildLeaderboard(room);
+
+  // Persist final scores for this game into game_participants
+  try {
+    for (const p of room.players.values()) {
+      const username = p.username;
+      const finalScore = typeof p.totalScore === 'number' ? p.totalScore : 0;
+
+      let playerId = null;
+
+      if (username) {
+        // Ensure there is a players row for this username
+        const existingPlayerRes = await query(
+          'SELECT id FROM players WHERE username = $1',
+          [username]
+        );
+
+        if (existingPlayerRes.rows.length > 0) {
+          playerId = existingPlayerRes.rows[0].id;
+        } else {
+          const insertPlayerRes = await query(
+            'INSERT INTO players (username) VALUES ($1) RETURNING id',
+            [username]
+          );
+          playerId = insertPlayerRes.rows[0].id;
+        }
+      }
+
+      // Convert joinTimeMs (if present) to an ISO string timestamp
+      let joinTimeIso = new Date().toISOString();
+      if (p.joinTimeMs) {
+        joinTimeIso = new Date(p.joinTimeMs).toISOString();
+      }
+
+      await query(
+        `
+          INSERT INTO game_participants (
+            game_id,
+            player_id,
+            join_time,
+            final_score
+          )
+          VALUES ($1, $2, $3, $4)
+        `,
+        [
+          room.gameId,     // game_id
+          playerId,        // player_id
+          joinTimeIso,     // join_time
+          finalScore       // final_score
+        ]
+      );
+    }
+
+    logger.info('Persisted game participants to DB', {
+      gameId: room.gameId,
+      gameCode,
+      participantCount: room.players.size
+    });
+  } catch (err) {
+    // Don’t break the game end if DB writes fail; just log.
+    logger.error('Failed to persist game participants', err);
+  }
+
+  logger.info('Emitting game_ended', {
+    gameCode,
+    totalQuestions: totalQuestionsActuallyPlayed
+  });
+
+  io.to(gameCode).emit('game_ended', {
+    gameCode,
+    totalQuestions: totalQuestionsActuallyPlayed,
+    finalRankings: leaderboard
+  });
+}
+
+/**
  * Ends the current question for a given game room:
  * - Marks the question as inactive
  * - Emits question_ended with correct answer, explanation, and leaderboard
@@ -113,8 +219,11 @@ function broadcastPlayerList(io, gameCode) {
  *
  * @param {Server} io
  * @param {string} gameCode
+ * @param {{ forceGameEnd?: boolean }} [options]
  */
-async function endQuestion(io, gameCode) {
+async function endQuestion(io, gameCode, options = {}) {
+  const { forceGameEnd = false } = options;
+
   const room = gameRooms.get(gameCode);
   if (!room) {
     logger.warn('Attempted to end question for unknown gameCode', { gameCode });
@@ -146,42 +255,13 @@ async function endQuestion(io, gameCode) {
   room.currentQuestionStartTime = null;
 
   // Build leaderboard from in-memory scores
-  const leaderboard = Array.from(room.players.values())
-    .map((p) => {
-      const answers = Object.values(p.answers || {});
-      const answeredCount = answers.length;
-
-      const correctAnswers = answers.filter((a) => a.isCorrect).length;
-
-      const avgResponseMs =
-        answeredCount > 0
-          ? Math.round(
-              answers.reduce((sum, a) => sum + (a.elapsedMs || 0), 0) /
-                answeredCount
-            )
-          : null;
-
-      return {
-        username: p.username,
-        totalScore: p.totalScore || 0,
-        correctAnswers,
-        avgResponseMs
-      };
-    })
-    .sort((a, b) => b.totalScore - a.totalScore)
-    .map((p, i) => ({
-      rank: i + 1,
-      username: p.username,
-      totalScore: p.totalScore,
-      correctAnswers: p.correctAnswers,
-      avgResponseMs: p.avgResponseMs
-    }));
-
+  const leaderboard = buildLeaderboard(room);
 
   logger.info('Emitting question_ended', {
     gameCode,
     questionId: q.id,
-    leaderboardSize: leaderboard.length
+    leaderboardSize: leaderboard.length,
+    forceGameEnd
   });
 
   io.to(gameCode).emit('question_ended', {
@@ -192,86 +272,23 @@ async function endQuestion(io, gameCode) {
     leaderboard
   });
 
-  const isLastQuestion = idx >= room.questions.length - 1;
+  // How many questions were actually played so far?
+  const questionsPlayedSoFar = idx + 1;
 
-  if (isLastQuestion) {
-    room.status = 'completed';
-
-    // Persist final scores for this game into game_participants
-    try {
-      for (const p of room.players.values()) {
-        const username = p.username;
-        const finalScore = typeof p.totalScore === 'number' ? p.totalScore : 0;
-
-        let playerId = null;
-
-        if (username) {
-          // Ensure there is a players row for this username
-          const existingPlayerRes = await query(
-            'SELECT id FROM players WHERE username = $1',
-            [username]
-          );
-
-          if (existingPlayerRes.rows.length > 0) {
-            playerId = existingPlayerRes.rows[0].id;
-          } else {
-            const insertPlayerRes = await query(
-              'INSERT INTO players (username) VALUES ($1) RETURNING id',
-              [username]
-            );
-            playerId = insertPlayerRes.rows[0].id;
-          }
-        }
-
-        // Convert joinTimeMs (if present) to an ISO string timestamp
-        let joinTimeIso = new Date().toISOString();
-        if (p.joinTimeMs) {
-          joinTimeIso = new Date(p.joinTimeMs).toISOString();
-        }
-
-        await query(
-          `
-            INSERT INTO game_participants (
-              game_id,
-              player_id,
-              join_time,
-              final_score
-            )
-            VALUES ($1, $2, $3, $4)
-          `,
-          [
-            room.gameId,     // game_id
-            playerId,        // player_id
-            joinTimeIso,     // join_time
-            finalScore       // final_score
-          ]
-        );
-      }
-
-      logger.info('Persisted game participants to DB', {
-        gameId: room.gameId,
-        gameCode,
-        participantCount: room.players.size
-      });
-    } catch (err) {
-      // Don’t break the game end if DB writes fail; just log.
-      logger.error('Failed to persist game participants', err);
-    }
-
-    logger.info('Emitting game_ended', {
-      gameCode,
-      totalQuestions: room.questions.length
-    });
-
-    io.to(gameCode).emit('game_ended', {
-      gameCode,
-      totalQuestions: room.questions.length,
-      finalRankings: leaderboard
-    });
-
+  if (forceGameEnd) {
+    // Early termination (e.g., players dropped below 2):
+    // totalQuestions = questions actually asked, not the full planned set.
+    await endGame(io, gameCode, questionsPlayedSoFar, leaderboard);
     return;
   }
 
+  const isLastQuestion = idx >= room.questions.length - 1;
+
+  if (isLastQuestion) {
+    // Normal end-of-game: we used all planned questions.
+    await endGame(io, gameCode, room.questions.length, leaderboard);
+    return;
+  }
 
   // Advance to next question after a short delay (e.g., 5 seconds)
   room.currentQuestionIndex += 1;
@@ -434,7 +451,6 @@ function createSocketServer(httpServer) {
           gameRooms.set(normalizedCode, room);
         }
 
-
         const hostFlag = !!isHost;
 
         // Track which game this socket belongs to
@@ -450,9 +466,9 @@ function createSocketServer(httpServer) {
           isHost: hostFlag,
           totalScore: 0,
           answers: {},
-          joinTimeMs: Date.now()
+          joinTimeMs: Date.now(),
+          disconnected: false
         });
-
 
         if (hostFlag) {
           room.hostSocketId = socket.id;
@@ -618,7 +634,7 @@ function createSocketServer(httpServer) {
      *   answer: 'A' | 'B' | 'C' | 'D'
      * }
      */
-        socket.on('submit_answer', async (payload, ack) => {
+    socket.on('submit_answer', async (payload, ack) => {
       try {
         const { gameCode, questionId, answer } = payload || {};
 
@@ -686,7 +702,7 @@ function createSocketServer(httpServer) {
           return ack && ack({ ok: false, error: msg });
         }
 
-        // --------- SCORING (existing logic, now explicit) ---------
+        // --------- SCORING ---------
         const now = Date.now();
 
         const scoreResult = computeScore({
@@ -795,7 +811,6 @@ function createSocketServer(httpServer) {
         }
 
         // --------- ACK BACK TO CLIENT ---------
-                // --------- ACK BACK TO CLIENT ---------
         ack &&
           ack({
             ok: true,
@@ -817,29 +832,30 @@ function createSocketServer(httpServer) {
         room.answersReceived[questionKey] =
           (room.answersReceived[questionKey] || 0) + 1;
 
-        const totalPlayers = room.players.size;
+        const totalActivePlayers = Array.from(room.players.values()).filter(
+          (p) => !p.disconnected
+        ).length;
 
         logger.debug('Answer count updated for question', {
           gameCode: normalizedCode,
           questionId,
           answersForQuestion: room.answersReceived[questionKey],
-          totalPlayers
+          totalActivePlayers
         });
 
-        // If all players have answered and the question is still active,
+        // If all *active* players have answered and the question is still active,
         // end the question early.
         if (
           room.currentQuestionActive &&
-          room.answersReceived[questionKey] >= totalPlayers
+          room.answersReceived[questionKey] >= totalActivePlayers &&
+          totalActivePlayers > 0
         ) {
-          logger.info('All players answered, ending question early', {
+          logger.info('All active players answered, ending question early', {
             gameCode: normalizedCode,
             questionId
           });
-          endQuestion(io, normalizedCode);
+          await endQuestion(io, normalizedCode);
         }
-
-
       } catch (err) {
         logger.error('Error handling submit_answer', err);
         return ack && ack({
@@ -848,7 +864,6 @@ function createSocketServer(httpServer) {
         });
       }
     });
-
 
     // -------------------------------
     // disconnect
@@ -863,25 +878,55 @@ function createSocketServer(httpServer) {
         isHost
       });
 
-      if (gameCode) {
-        const room = gameRooms.get(gameCode);
-        if (room) {
-          room.players.delete(socket.id);
+      if (!gameCode) {
+        return;
+      }
 
-          if (room.hostSocketId === socket.id) {
-            room.hostSocketId = null;
-          }
+      const room = gameRooms.get(gameCode);
+      if (!room) {
+        return;
+      }
 
-          const players = buildPlayerList(room.players);
-          logger.info('Player removed from game room on disconnect', {
+      const player = room.players.get(socket.id);
+      if (player) {
+        // Mark as disconnected but keep stats so they appear in final rankings.
+        player.disconnected = true;
+      }
+
+      if (room.hostSocketId === socket.id) {
+        room.hostSocketId = null;
+      }
+
+      const activePlayersCount = Array.from(room.players.values()).filter(
+        (p) => !p.disconnected
+      ).length;
+
+      logger.info('Player marked disconnected', {
+        gameCode,
+        username,
+        activePlayersCount
+      });
+
+      // Broadcast updated player list (only connected players)
+      broadcastPlayerList(io, gameCode);
+
+      // If game is in progress and we now have fewer than 2 active players,
+      // end the current question (if any) and force game end.
+      if (
+        room.status === 'in_progress' &&
+        activePlayersCount < 2 &&
+        room.currentQuestionActive
+      ) {
+        logger.info(
+          'Active players dropped below 2; ending game early from disconnect handler',
+          {
             gameCode,
-            username,
-            remainingPlayers: players.length
-          });
-
-          // Broadcast updated player list
-          broadcastPlayerList(io, gameCode);
-        }
+            activePlayersCount
+          }
+        );
+        // We don't await here because disconnect is not async,
+        // but endQuestion internally awaits endGame.
+        endQuestion(io, gameCode, { forceGameEnd: true });
       }
     });
   });
@@ -922,3 +967,4 @@ if (require.main === module) {
 module.exports = {
   startServer
 };
+

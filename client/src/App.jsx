@@ -7,7 +7,7 @@ function App() {
 
   // Shared game state
   const [gameCode, setGameCode] = useState('');
-  const [gameId, setGameId] = useState(null);
+  const [gameId, setGameId] = useState(null); // currently not displayed, but fine to keep
   const [username, setUsername] = useState('');
   const [isHost, setIsHost] = useState(false);
   const [players, setPlayers] = useState([]);
@@ -150,7 +150,12 @@ function App() {
       setQuestion(null);
       setCountdown(null);
       setGameEnded(true);
-      setFinalTotalQuestions(payload.totalQuestions || null);
+      setLastQuestionSummary(null); // clear per-question UI so we only see final screen
+      setFinalTotalQuestions(
+        typeof payload.totalQuestions === 'number'
+          ? payload.totalQuestions
+          : null
+      );
       setFinalRankings(payload.finalRankings || []);
     }
 
@@ -303,6 +308,7 @@ function App() {
   // Basic render helpers
   const playerCount = players.length;
   const canStart = isHost && playerCount >= 2;
+  const totalQuestions = finalTotalQuestions; // convenience alias for JSX
 
   return (
     <div style={{ padding: '1.5rem', fontFamily: 'system-ui' }}>
@@ -521,6 +527,7 @@ function App() {
                   }}
                 >
                   #{entry.rank} – {entry.username} ({entry.totalScore} pts)
+                  {entry.disconnected && ' (disconnected)'}
                 </li>
               ))}
             </ol>
@@ -538,17 +545,16 @@ function App() {
               <p>No rankings available.</p>
             ) : (
               <>
-                {finalTotalQuestions != null && (
-                  <p>Total Questions: {finalTotalQuestions}</p>
+                {totalQuestions && (
+                  <p>Total Questions: {totalQuestions}</p>
                 )}
 
                 <ol>
                   {finalRankings.map((entry) => {
                     const percentCorrect =
-                      finalTotalQuestions &&
-                      typeof entry.correctAnswers === 'number'
+                      totalQuestions && typeof entry.correctAnswers === 'number'
                         ? Math.round(
-                            (entry.correctAnswers / finalTotalQuestions) * 100
+                            (entry.correctAnswers / totalQuestions) * 100
                           )
                         : null;
 
@@ -565,13 +571,15 @@ function App() {
                             entry.username === username ? 'bold' : 'normal'
                         }}
                       >
-                        #{entry.rank} – {entry.username} ({entry.totalScore} pts)
+                        #{entry.rank} – {entry.username}{' '}
+                        {entry.disconnected && '(disconnected)'} (
+                        {entry.totalScore} pts)
                         {typeof entry.correctAnswers === 'number' && (
                           <>
                             {' '}
                             | Correct: {entry.correctAnswers}
-                            {finalTotalQuestions
-                              ? ` / ${finalTotalQuestions}${
+                            {totalQuestions
+                              ? ` / ${totalQuestions}${
                                   percentCorrect != null
                                     ? ` (${percentCorrect}%)`
                                     : ''
