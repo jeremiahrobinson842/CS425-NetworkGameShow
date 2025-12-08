@@ -17,6 +17,15 @@ function App() {
   const [question, setQuestion] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(null);
 
+  // Per-player feedback
+  const [lastAnswerResult, setLastAnswerResult] = useState(null);
+
+  // Leaderboard for current question
+  const [leaderboard, setLeaderboard] = useState([]);
+
+  // Final results when game ends
+  const [finalResults, setFinalResults] = useState(null);
+
   const socket = getSocket();
 
   // Attach socket.io listeners once
@@ -46,13 +55,17 @@ function App() {
     function onGameStarting(payload) {
       console.log('game_starting', payload);
       setCountdown(payload.countdown);
+      setLastAnswerResult(null);
+      setLeaderboard([]);
+      setFinalResults(null);
     }
 
     function onQuestion(payload) {
       console.log('question', payload);
       setQuestion(payload);
+      setLastAnswerResult(null);
+      setLeaderboard([]);
 
-      // Setup client-side timer based on serverStartTime + timeLimit
       const totalMs = payload.timeLimit * 1000;
       const start = payload.serverStartTime;
       const endTime = start + totalMs;
@@ -68,7 +81,7 @@ function App() {
         return true;
       }
 
-      updateTimer(); // initial
+      updateTimer(); // initial call
 
       const intervalId = setInterval(() => {
         const stillRunning = updateTimer();
@@ -78,12 +91,27 @@ function App() {
       }, 250);
     }
 
+    function onQuestionEnded(payload) {
+      console.log('question_ended', payload);
+      setLeaderboard(payload.leaderboard || []);
+    }
+
+    function onGameEnded(payload) {
+      console.log('game_ended', payload);
+      setFinalResults(payload.finalRankings || []);
+      setQuestion(null);
+      setCountdown(null);
+      setTimeRemaining(null);
+    }
+
     socket.on('connect', onConnect);
     socket.on('disconnect', onDisconnect);
     socket.on('player_joined', onPlayerJoined);
     socket.on('player_list', onPlayerList);
     socket.on('game_starting', onGameStarting);
     socket.on('question', onQuestion);
+    socket.on('question_ended', onQuestionEnded);
+    socket.on('game_ended', onGameEnded);
 
     return () => {
       socket.off('connect', onConnect);
@@ -92,6 +120,8 @@ function App() {
       socket.off('player_list', onPlayerList);
       socket.off('game_starting', onGameStarting);
       socket.off('question', onQuestion);
+      socket.off('question_ended', onQuestionEnded);
+      socket.off('game_ended', onGameEnded);
     };
   }, [socket]);
 
@@ -174,13 +204,41 @@ function App() {
     });
   }
 
+  // Answer click handler -> emits submit_answer
+  function handleAnswerClick(optionLetter) {
+    if (!question) {
+      alert('No active question.');
+      return;
+    }
+    if (!gameCode) {
+      alert('No gameCode set.');
+      return;
+    }
+
+    const payload = {
+      gameCode,
+      questionId: question.id,
+      answer: optionLetter
+    };
+
+    console.log('Emitting submit_answer', payload);
+
+    socket.emit('submit_answer', payload, (ack) => {
+      console.log('submit_answer ack:', ack);
+      setLastAnswerResult({
+        ...ack,
+        chosenOption: optionLetter
+      });
+    });
+  }
+
   // Basic render helpers
   const playerCount = players.length;
   const canStart = isHost && playerCount >= 2;
 
   return (
     <div style={{ padding: '1.5rem', fontFamily: 'system-ui' }}>
-      <h1>Network Game Show – Week 2 Real-Time Core</h1>
+      <h1>Network Game Show – Real-Time Core</h1>
 
       <div style={{ marginBottom: '1rem' }}>
         <button
@@ -302,6 +360,7 @@ function App() {
         }}
       >
         <h2>Game View (Shared)</h2>
+
         {countdown !== null && question == null && (
           <p>Game starting in: {countdown}...</p>
         )}
@@ -313,29 +372,89 @@ function App() {
             </p>
             <h3>{question.text}</h3>
             <div style={{ marginBottom: '1rem' }}>
-              <button style={{ display: 'block', margin: '0.25rem 0' }}>
+              <button
+                style={{ display: 'block', margin: '0.25rem 0' }}
+                onClick={() => handleAnswerClick('A')}
+              >
                 A) {question.options.A}
               </button>
-              <button style={{ display: 'block', margin: '0.25rem 0' }}>
+              <button
+                style={{ display: 'block', margin: '0.25rem 0' }}
+                onClick={() => handleAnswerClick('B')}
+              >
                 B) {question.options.B}
               </button>
-              <button style={{ display: 'block', margin: '0.25rem 0' }}>
+              <button
+                style={{ display: 'block', margin: '0.25rem 0' }}
+                onClick={() => handleAnswerClick('C')}
+              >
                 C) {question.options.C}
               </button>
-              <button style={{ display: 'block', margin: '0.25rem 0' }}>
+              <button
+                style={{ display: 'block', margin: '0.25rem 0' }}
+                onClick={() => handleAnswerClick('D')}
+              >
                 D) {question.options.D}
               </button>
             </div>
             <p>
-              Time remaining:{' '}
+              Time remaining{' '}
               {timeRemaining !== null ? `${timeRemaining}s` : '...'}
             </p>
-            <p>Your score: (will be implemented in Week 3, currently 0)</p>
+
+            {lastAnswerResult && (
+              <p>
+                Last answer:{' '}
+                {lastAnswerResult.ok
+                  ? lastAnswerResult.isCorrect
+                    ? `Correct! +${lastAnswerResult.pointsAwarded} points (base ${lastAnswerResult.basePoints}, bonus ${lastAnswerResult.speedBonus})`
+                    : 'Incorrect.'
+                  : `Error: ${lastAnswerResult.error || 'unknown error'}`}
+              </p>
+            )}
           </>
         )}
 
-        {!question && countdown === null && (
+        {!question && countdown === null && !finalResults && (
           <p>No question active yet. Host must start the game.</p>
+        )}
+
+        {leaderboard.length > 0 && !finalResults && (
+          <div style={{ marginTop: '1rem' }}>
+            <h3>Current Leaderboard</h3>
+            <ol>
+              {leaderboard.map((entry) => (
+                <li
+                  key={entry.username}
+                  style={{
+                    fontWeight:
+                      entry.username === username ? 'bold' : 'normal'
+                  }}
+                >
+                  #{entry.rank} {entry.username} — {entry.totalScore} pts
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+
+        {finalResults && (
+          <div style={{ marginTop: '1.5rem' }}>
+            <h3>Final Results</h3>
+            <ol>
+              {finalResults.map((entry) => (
+                <li
+                  key={entry.username}
+                  style={{
+                    fontWeight:
+                      entry.username === username ? 'bold' : 'normal'
+                  }}
+                >
+                  #{entry.rank} {entry.username} — {entry.totalScore} pts
+                </li>
+              ))}
+            </ol>
+          </div>
         )}
       </section>
     </div>

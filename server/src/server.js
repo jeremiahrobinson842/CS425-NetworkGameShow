@@ -8,7 +8,7 @@
  * - Configure global middleware (JSON parsing, CORS)
  * - Mount HTTP routes (e.g., /health, /api/games, /api/questions)
  * - Create HTTP server and attach Socket.io instance
- * - Implement basic real-time game lobby + start_game flow
+ * - Implement real-time game lobby, start_game flow, and scoring
  *
  * @module server
  */
@@ -24,18 +24,33 @@ const healthRoutes = require('./http/routes/healthRoutes');
 const gamesRoutes = require('./http/routes/gamesRoutes');
 const questionsRoutes = require('./http/routes/questionsRoutes');
 const { query } = require('./config/db');
+const { computeScore } = require('./sockets/scoring');
 
 /**
  * In-memory game room state.
  *
  * Map<gameCode, {
  *   gameId: number,
+ *   status: 'waiting' | 'in_progress' | 'completed',
  *   timePerQuestion: number,
  *   questions: Array<DBQuestionRow>,
  *   currentQuestionIndex: number,
- *   players: Map<socketId, { username: string, isHost: boolean }>,
+ *   players: Map<socketId, {
+ *     username: string,
+ *     isHost: boolean,
+ *     totalScore: number,
+ *     answers: Record<questionId, {
+ *       chosenOption: 'A'|'B'|'C'|'D',
+ *       isCorrect: boolean,
+ *       points: number,
+ *       elapsedMs: number,
+ *       suspicious: boolean
+ *     }>
+ *   }>,
  *   hostSocketId: string | null,
- *   currentQuestionStartTime: number | null
+ *   currentQuestionStartTime: number | null,
+ *   currentQuestionActive: boolean,
+ *   currentQuestionTimeout: NodeJS.Timeout | null
  * }>
  */
 const gameRooms = new Map();
@@ -61,13 +76,14 @@ function createExpressApp() {
 /**
  * Helper to build a simple player list for the client.
  *
- * @param {Map<string, { username: string, isHost: boolean }>} playersMap
- * @returns {Array<{ username: string, isHost: boolean }>}
+ * @param {Map<string, { username: string, isHost: boolean, totalScore?: number }>} playersMap
+ * @returns {Array<{ username: string, isHost: boolean, totalScore?: number }>}
  */
 function buildPlayerList(playersMap) {
   return Array.from(playersMap.values()).map((p) => ({
     username: p.username,
-    isHost: p.isHost
+    isHost: p.isHost,
+    totalScore: p.totalScore
   }));
 }
 
@@ -90,11 +106,101 @@ function broadcastPlayerList(io, gameCode) {
 }
 
 /**
- * Broadcasts the next question for a game room.
+ * Ends the current question for a given game room:
+ * - Marks the question as inactive
+ * - Emits question_ended with correct answer, explanation, and leaderboard
+ * - Either schedules next question or emits game_ended
  *
- * This is a minimal version for Week 2:
- * - Picks a question from room.questions[currentQuestionIndex]
- * - Emits a `question` event with text, options, questionNumber, totalQuestions, timeLimit
+ * @param {Server} io
+ * @param {string} gameCode
+ */
+function endQuestion(io, gameCode) {
+  const room = gameRooms.get(gameCode);
+  if (!room) {
+    logger.warn('Attempted to end question for unknown gameCode', { gameCode });
+    return;
+  }
+
+  if (!room.currentQuestionActive) {
+    // Already ended (e.g. via timer or all-answered path)
+    return;
+  }
+
+  room.currentQuestionActive = false;
+
+  if (room.currentQuestionTimeout) {
+    clearTimeout(room.currentQuestionTimeout);
+    room.currentQuestionTimeout = null;
+  }
+
+  const idx = room.currentQuestionIndex;
+  const q = room.questions[idx];
+  if (!q) {
+    logger.warn('No current question found when ending question', {
+      gameCode,
+      currentQuestionIndex: idx
+    });
+    return;
+  }
+
+  room.currentQuestionStartTime = null;
+
+  // Build leaderboard from in-memory scores
+  const leaderboard = Array.from(room.players.values())
+    .map((p) => ({
+      username: p.username,
+      totalScore: p.totalScore || 0
+    }))
+    .sort((a, b) => b.totalScore - a.totalScore)
+    .map((p, i) => ({
+      rank: i + 1,
+      username: p.username,
+      totalScore: p.totalScore
+    }));
+
+  logger.info('Emitting question_ended', {
+    gameCode,
+    questionId: q.id,
+    leaderboardSize: leaderboard.length
+  });
+
+  io.to(gameCode).emit('question_ended', {
+    gameCode,
+    questionId: q.id,
+    correctAnswer: q.correct_option,
+    explanation: q.explanation,
+    leaderboard
+  });
+
+  const isLastQuestion = idx >= room.questions.length - 1;
+
+  if (isLastQuestion) {
+    room.status = 'completed';
+
+    logger.info('Emitting game_ended', {
+      gameCode,
+      totalQuestions: room.questions.length
+    });
+
+    io.to(gameCode).emit('game_ended', {
+      gameCode,
+      finalRankings: leaderboard
+      // Later we can include more per-player stats here.
+    });
+
+    return;
+  }
+
+  // Advance to next question after a short delay (e.g., 5 seconds)
+  room.currentQuestionIndex += 1;
+
+  setTimeout(() => {
+    broadcastNextQuestion(io, gameCode);
+  }, 5000);
+}
+
+/**
+ * Broadcasts the next question for a game room and starts its timer.
  *
  * @param {Server} io
  * @param {string} gameCode
@@ -113,12 +219,30 @@ function broadcastNextQuestion(io, gameCode) {
 
   if (room.currentQuestionIndex >= room.questions.length) {
     logger.info('All questions have been used for this game', { gameCode });
-    // In Week 3, we will emit a game_ended event here.
     return;
   }
 
   const q = room.questions[room.currentQuestionIndex];
   room.currentQuestionStartTime = Date.now();
+  room.currentQuestionActive = true;
+
+  // Clear any previous timeout
+  if (room.currentQuestionTimeout) {
+    clearTimeout(room.currentQuestionTimeout);
+    room.currentQuestionTimeout = null;
+  }
+
+  const timeLimitSeconds = room.timePerQuestion;
+  const totalMs = timeLimitSeconds * 1000;
+
+  // Auto-end the question when the timer expires
+  room.currentQuestionTimeout = setTimeout(() => {
+    logger.info('Question time expired, auto-ending question', {
+      gameCode,
+      questionId: q.id
+    });
+    endQuestion(io, gameCode);
+  }, totalMs + 100); // small buffer to avoid rounding issues
 
   const payload = {
     id: q.id,
@@ -131,7 +255,7 @@ function broadcastNextQuestion(io, gameCode) {
     },
     questionNumber: room.currentQuestionIndex + 1,
     totalQuestions: room.questions.length,
-    timeLimit: room.timePerQuestion, // seconds
+    timeLimit: timeLimitSeconds, // seconds
     serverStartTime: room.currentQuestionStartTime
   };
 
@@ -142,19 +266,17 @@ function broadcastNextQuestion(io, gameCode) {
   });
 
   io.to(gameCode).emit('question', payload);
-
-  // NOTE: For Week 2, we are not yet handling answer submission or timer end.
-  // That will come in Week 3 with scoring and question lifecycle.
 }
 
 /**
- * Initializes the Socket.io server and attaches basic real-time handlers.
+ * Initializes the Socket.io server and attaches real-time handlers.
  *
- * Features implemented for Week 2:
+ * Features:
  * - Connection / disconnection logging
  * - join_game event with gameCode-based rooms
  * - player_joined / player_list broadcasts
- * - start_game event with countdown + first question broadcast
+ * - start_game event with countdown + question broadcast
+ * - submit_answer event with scoring + early question end
  *
  * @param {http.Server} httpServer - The HTTP server to attach Socket.io to.
  * @returns {Server} The initialized Socket.io server instance.
@@ -170,7 +292,9 @@ function createSocketServer(httpServer) {
   io.on('connection', (socket) => {
     logger.info('New WebSocket client connected', { socketId: socket.id });
 
-    // Join game lobby
+    // -------------------------------
+    // join_game
+    // -------------------------------
     socket.on('join_game', async (payload, ack) => {
       try {
         const { gameCode, username, isHost } = payload || {};
@@ -208,12 +332,15 @@ function createSocketServer(httpServer) {
         if (!room) {
           room = {
             gameId: gameRow.id,
+            status: 'waiting',
             timePerQuestion: gameRow.time_per_question,
             questions: [], // will be loaded on start_game
             currentQuestionIndex: 0,
             players: new Map(),
             hostSocketId: null,
-            currentQuestionStartTime: null
+            currentQuestionStartTime: null,
+            currentQuestionActive: false,
+            currentQuestionTimeout: null
           };
           gameRooms.set(normalizedCode, room);
         }
@@ -228,10 +355,12 @@ function createSocketServer(httpServer) {
         // Add to Socket.io room
         await socket.join(normalizedCode);
 
-        // Add to in-memory players list
+        // Add to in-memory players list (extended for scoring)
         room.players.set(socket.id, {
           username,
-          isHost: hostFlag
+          isHost: hostFlag,
+          totalScore: 0,
+          answers: {}
         });
 
         if (hostFlag) {
@@ -276,13 +405,17 @@ function createSocketServer(httpServer) {
       }
     });
 
-    // Start game (host only)
+    // -------------------------------
+    // start_game
+    // -------------------------------
     socket.on('start_game', async (payload, ack) => {
       try {
         const { gameCode } = payload || {};
         const codeFromSocket = socket.data.gameCode;
 
-        const normalizedCode = String(gameCode || codeFromSocket || '').trim().toUpperCase();
+        const normalizedCode = String(gameCode || codeFromSocket || '')
+          .trim()
+          .toUpperCase();
         if (!normalizedCode) {
           const msg = 'Missing gameCode in start_game payload';
           logger.warn(msg, { socketId: socket.id, payload });
@@ -314,7 +447,10 @@ function createSocketServer(httpServer) {
         const players = buildPlayerList(room.players);
         if (players.length < 2) {
           const msg = 'At least 2 players are required to start the game';
-          logger.warn(msg, { gameCode: normalizedCode, playerCount: players.length });
+          logger.warn(msg, {
+            gameCode: normalizedCode,
+            playerCount: players.length
+          });
           if (typeof ack === 'function') {
             ack({ ok: false, error: msg });
           }
@@ -351,6 +487,9 @@ function createSocketServer(httpServer) {
           });
         }
 
+        // Mark game in progress for scoring
+        room.status = 'in_progress';
+
         // Notify room that game is starting with a countdown
         const countdownSeconds = 3;
         io.to(normalizedCode).emit('game_starting', { countdown: countdownSeconds });
@@ -376,7 +515,176 @@ function createSocketServer(httpServer) {
       }
     });
 
-    // Handle disconnection
+    // -------------------------------
+    // submit_answer
+    // -------------------------------
+    /**
+     * Handle answer submissions from clients (Week 3 - scoring).
+     *
+     * payload: {
+     *   gameCode: string,
+     *   questionId: number,
+     *   answer: 'A' | 'B' | 'C' | 'D'
+     * }
+     */
+    socket.on('submit_answer', (payload, ack) => {
+      try {
+        const { gameCode, questionId, answer } = payload || {};
+
+        // Prefer payload gameCode, fallback to what we stored on socket.data
+        const normalizedCode = String(gameCode || socket.data.gameCode || '')
+          .trim()
+          .toUpperCase();
+
+        if (!normalizedCode || !questionId || !answer) {
+          const msg = 'Missing gameCode, questionId, or answer in submit_answer payload';
+          logger.warn(msg, { socketId: socket.id, payload });
+          return ack && ack({ ok: false, error: msg });
+        }
+
+        const room = gameRooms.get(normalizedCode);
+        if (!room || room.status !== 'in_progress') {
+          const msg = 'Game is not active for submit_answer';
+          logger.warn(msg, { socketId: socket.id, gameCode: normalizedCode });
+          return ack && ack({ ok: false, error: msg });
+        }
+
+        const currentQuestion = room.questions[room.currentQuestionIndex];
+        if (!currentQuestion || currentQuestion.id !== questionId) {
+          const msg = 'Question is not currently active for this game';
+          logger.warn(msg, {
+            socketId: socket.id,
+            gameCode: normalizedCode,
+            questionId,
+            activeQuestionId: currentQuestion && currentQuestion.id
+          });
+          return ack && ack({ ok: false, error: msg });
+        }
+
+        const player = room.players.get(socket.id);
+        if (!player) {
+          const msg = 'Player is not registered in this game room';
+          logger.warn(msg, { socketId: socket.id, gameCode: normalizedCode });
+          return ack && ack({ ok: false, error: msg });
+        }
+
+        // Prevent multiple submissions for same question
+        if (player.answers[questionId]) {
+          const msg = 'Answer already submitted for this question';
+          logger.warn(msg, {
+            socketId: socket.id,
+            gameCode: normalizedCode,
+            questionId
+          });
+          return ack && ack({ ok: false, error: msg });
+        }
+
+        const startTime = room.currentQuestionStartTime;
+        if (!startTime) {
+          const msg = 'Question timing not initialized on server';
+          logger.warn(msg, {
+            socketId: socket.id,
+            gameCode: normalizedCode,
+            questionId
+          });
+          return ack && ack({ ok: false, error: msg });
+        }
+
+        const now = Date.now();
+        const elapsedMs = now - startTime;
+        const timeLimitSeconds = room.timePerQuestion;
+        const totalMs = timeLimitSeconds * 1000;
+
+        // If answer is late, treat as incorrect for now
+        if (elapsedMs > totalMs) {
+          logger.info('Late answer received (after time limit)', {
+            socketId: socket.id,
+            gameCode: normalizedCode,
+            questionId,
+            elapsedMs,
+            totalMs
+          });
+
+          player.answers[questionId] = {
+            chosenOption: answer,
+            isCorrect: false,
+            points: 0,
+            elapsedMs,
+            suspicious: false
+          };
+
+          return ack && ack({
+            ok: false,
+            error: 'Answer submitted after time expired',
+            late: true
+          });
+        }
+
+        const isCorrect = (answer === currentQuestion.correct_option);
+
+        // Use the scoring engine
+        const scoreResult = computeScore({
+          isCorrect,
+          elapsedMs,
+          timeLimitSeconds
+        });
+
+        // Update in-memory totals
+        player.totalScore += scoreResult.points;
+        player.answers[questionId] = {
+          chosenOption: answer,
+          isCorrect,
+          points: scoreResult.points,
+          elapsedMs: scoreResult.clampedElapsedMs,
+          suspicious: scoreResult.suspicious
+        };
+
+        logger.info('submit_answer scored', {
+          gameCode: normalizedCode,
+          questionId,
+          username: player.username,
+          isCorrect,
+          points: scoreResult.points,
+          basePoints: scoreResult.basePoints,
+          speedBonus: scoreResult.speedBonus
+        });
+
+        // Acknowledge back to this player
+        ack && ack({
+          ok: true,
+          isCorrect,
+          pointsAwarded: scoreResult.points,
+          basePoints: scoreResult.basePoints,
+          speedBonus: scoreResult.speedBonus
+        });
+
+        // If all players have answered this question, end it early.
+        const totalPlayers = room.players.size;
+        let answeredCount = 0;
+        for (const p of room.players.values()) {
+          if (p.answers[questionId]) {
+            answeredCount += 1;
+          }
+        }
+
+        if (answeredCount >= totalPlayers) {
+          logger.info('All players answered; ending question early', {
+            gameCode: normalizedCode,
+            questionId,
+            answeredCount,
+            totalPlayers
+          });
+          endQuestion(io, normalizedCode);
+        }
+      } catch (err) {
+        logger.error('Error handling submit_answer', err);
+        ack && ack({ ok: false, error: 'Internal server error in submit_answer' });
+      }
+    });
+
+    // -------------------------------
+    // disconnect
+    // -------------------------------
     socket.on('disconnect', (reason) => {
       const { gameCode, username, isHost } = socket.data || {};
       logger.info('WebSocket client disconnected', {

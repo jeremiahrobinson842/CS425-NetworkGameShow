@@ -1,17 +1,19 @@
 // client/src/lib/socket.js
 import { io } from 'socket.io-client';
 
-/**
- * Singleton Socket.io client for the Network Game Show frontend.
- *
- * We use lazy initialization so we don't connect until the UI asks for it.
- */
-let socket = null;
+let socket;
 
+/**
+ * Get a singleton Socket.io client instance.
+ *
+ * This avoids creating multiple WebSocket connections
+ * every time a component renders.
+ */
 export function getSocket() {
   if (!socket) {
     socket = io('http://localhost:4000', {
-      autoConnect: false
+      autoConnect: false,
+      transports: ['websocket', 'polling']
     });
   }
   return socket;

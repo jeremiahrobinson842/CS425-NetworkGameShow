@@ -1,62 +1,86 @@
-// server/src/socket/scoring.js
+// server/src/sockets/scoring.js
 
 /**
- * Scoring utilities for Network Game Show.
+ * Scoring engine for Network Game Show.
+ *
+ * Responsibilities:
+ * - Given correctness, elapsed time, and time limit,
+ *   compute base points + speed bonus.
+ * - Flag suspiciously fast answers (< 1 second).
  *
  * Scoring rules:
- * - Correct answer: 100 base points.
- * - Speed bonus: up to 50 additional points, scaled linearly.
- *   - If answered immediately (elapsedMs ~ 0): +50
- *   - If answered at the last moment (elapsedMs ~ totalMs): +0
- * - Wrong answers: 0 points.
- * - Answers with elapsedMs < 1000 ms are flagged as suspicious.
+ * - Correct answer:
+ *   - Base points: 100
+ *   - Speed bonus: up to 50 points, linear from full time to 0
+ *     (answer at t=0s => +50, at t=timeLimit => +0)
+ * - Incorrect answer:
+ *   - 0 points (no negative scoring)
+ *
+ * @module sockets/scoring
+ */
+
+/**
+ * @typedef {Object} ScoreInput
+ * @property {boolean} isCorrect - Whether the answer is correct.
+ * @property {number} elapsedMs - Time elapsed between question start and answer, in milliseconds.
+ * @property {number} timeLimitSeconds - Time limit for the question, in seconds.
+ */
+
+/**
+ * @typedef {Object} ScoreResult
+ * @property {number} basePoints - Base points for correctness (0 or 100).
+ * @property {number} speedBonus - Bonus points for speed (0–50).
+ * @property {number} points - Total points = basePoints + speedBonus.
+ * @property {number} clampedElapsedMs - Elapsed time after clamping (0..timeLimitMs).
+ * @property {boolean} suspicious - True if elapsedMs < 1000ms (basic anti-cheat flag).
  */
 
 /**
  * Compute the score for a single answer.
  *
- * @param {Object} params
- * @param {boolean} params.isCorrect - Whether the answer was correct.
- * @param {number} params.elapsedMs - Time (ms) between question start and answer.
- * @param {number} params.timeLimitSeconds - Total time allowed for the question, in seconds.
- * @returns {{
- *   points: number,
- *   basePoints: number,
- *   speedBonus: number,
- *   suspicious: boolean,
- *   clampedElapsedMs: number
- * }}
+ * @param {ScoreInput} input
+ * @returns {ScoreResult}
  */
-function computeScore({ isCorrect, elapsedMs, timeLimitSeconds }) {
-  const totalMs = timeLimitSeconds * 1000;
+function computeScore(input) {
+  const { isCorrect, elapsedMs, timeLimitSeconds } = input;
 
-  // Clamp elapsedMs to [0, totalMs]
-  const clampedElapsedMs = Math.max(0, Math.min(elapsedMs, totalMs));
+  const timeLimitMs = Math.max(0, timeLimitSeconds * 1000);
+
+  // Clamp elapsedMs into [0, timeLimitMs]
+  const clampedElapsedMs = Math.max(0, Math.min(elapsedMs, timeLimitMs));
+
+  const suspicious = clampedElapsedMs < 1000; // < 1 second
 
   if (!isCorrect) {
     return {
-      points: 0,
       basePoints: 0,
       speedBonus: 0,
-      suspicious: clampedElapsedMs < 1000
+      points: 0,
+      clampedElapsedMs,
+      suspicious
     };
   }
 
   const basePoints = 100;
 
-  // speedBonus = floor(50 * (timeRemaining / totalTime))
-  const timeRemainingMs = totalMs - clampedElapsedMs;
-  const fractionRemaining = totalMs > 0 ? timeRemainingMs / totalMs : 0;
-  const speedBonus = Math.max(0, Math.floor(50 * fractionRemaining));
+  // Linear scale:
+  // - clampedElapsedMs = 0   => full bonus (50)
+  // - clampedElapsedMs = limit => 0 bonus
+  let speedBonus = 0;
+  if (timeLimitMs > 0) {
+    const timeRemainingMs = timeLimitMs - clampedElapsedMs;
+    const fraction = timeRemainingMs / timeLimitMs; // 1.0 .. 0.0
+    speedBonus = Math.round(50 * fraction);
+  }
 
-  const suspicious = clampedElapsedMs < 1000;
+  const points = basePoints + speedBonus;
 
   return {
-    points: basePoints + speedBonus,
     basePoints,
     speedBonus,
-    suspicious,
-    clampedElapsedMs
+    points,
+    clampedElapsedMs,
+    suspicious
   };
 }
 
