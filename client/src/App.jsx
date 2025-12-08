@@ -17,17 +17,19 @@ function App() {
   const [question, setQuestion] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(null);
 
-  // Holds the active timer interval id
+  // Timer interval for question countdown
   const timerIntervalRef = useRef(null);
 
-  // Per-player feedback
-  const [lastAnswerResult, setLastAnswerResult] = useState(null);
+  // Per-question feedback for THIS player
+  const [lastAnswer, setLastAnswer] = useState(null); // result of your last submit
+  const [lastQuestionSummary, setLastQuestionSummary] = useState(null); // correct answer, explanation
 
-  // Leaderboard for current question
+  // Leaderboard for current / last question
   const [leaderboard, setLeaderboard] = useState([]);
 
-  // Final results when game ends
-  const [finalResults, setFinalResults] = useState(null);
+  // Game-end state
+  const [gameEnded, setGameEnded] = useState(false);
+  const [finalRankings, setFinalRankings] = useState([]);
 
   const socket = getSocket();
 
@@ -58,12 +60,16 @@ function App() {
     function onGameStarting(payload) {
       console.log('game_starting', payload);
       setCountdown(payload.countdown);
-      setLastAnswerResult(null);
+
+      // Reset between games
+      setLastAnswer(null);
+      setLastQuestionSummary(null);
       setLeaderboard([]);
-      setFinalResults(null);
+      setGameEnded(false);
+      setFinalRankings([]);
     }
 
-        function onQuestion(payload) {
+    function onQuestion(payload) {
       console.log('question', payload);
       setQuestion(payload);
 
@@ -73,8 +79,10 @@ function App() {
         timerIntervalRef.current = null;
       }
 
-      // Reset timeRemaining for the new question
+      // New question -> reset time + per-question UI bits
       setTimeRemaining(null);
+      setLastAnswer(null);
+      setLastQuestionSummary(null);
 
       // Setup client-side timer based on serverStartTime + timeLimit
       const totalMs = payload.timeLimit * 1000;
@@ -103,24 +111,44 @@ function App() {
       }, 250);
     }
 
-
     function onQuestionEnded(payload) {
       console.log('question_ended', payload);
-      setLeaderboard(payload.leaderboard || []);
 
+      // Stop timer
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
         timerIntervalRef.current = null;
       }
       setTimeRemaining(0);
+
+      // End of this question
+      setQuestion(null);
+
+      // Store summary + leaderboard for UI
+      setLastQuestionSummary({
+        gameCode: payload.gameCode,
+        questionId: payload.questionId,
+        correctAnswer: payload.correctAnswer,
+        explanation: payload.explanation
+      });
+
+      setLeaderboard(payload.leaderboard || []);
     }
 
     function onGameEnded(payload) {
       console.log('game_ended', payload);
-      setFinalResults(payload.finalRankings || []);
+
+      // Stop any timer
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+
+      setTimeRemaining(null);
       setQuestion(null);
       setCountdown(null);
-      setTimeRemaining(null);
+      setGameEnded(true);
+      setFinalRankings(payload.finalRankings || []);
     }
 
     socket.on('connect', onConnect);
@@ -249,9 +277,22 @@ function App() {
 
     socket.emit('submit_answer', payload, (ack) => {
       console.log('submit_answer ack:', ack);
-      setLastAnswerResult({
-        ...ack,
-        chosenOption: optionLetter
+
+      if (!ack || !ack.ok) {
+        alert('Failed to submit answer: ' + (ack && ack.error));
+        return;
+      }
+
+      // Store what happened for THIS player on THIS question
+      setLastAnswer({
+        chosenOption: optionLetter,
+        pointsAwarded: ack.pointsAwarded,
+        basePoints: ack.basePoints,
+        speedBonus: ack.speedBonus,
+        elapsedMs: ack.elapsedMs,
+        isCorrect: ack.isCorrect,
+        suspicious: ack.suspicious,
+        totalScoreAfter: ack.totalScore
       });
     });
   }
@@ -385,11 +426,13 @@ function App() {
       >
         <h2>Game View (Shared)</h2>
 
-        {countdown !== null && question == null && (
+        {/* Starting countdown */}
+        {countdown !== null && !question && !gameEnded && (
           <p>Game starting in: {countdown}...</p>
         )}
 
-        {question && (
+        {/* Active question */}
+        {question && !gameEnded && (
           <>
             <p>
               Question {question.questionNumber} of {question.totalQuestions}
@@ -426,26 +469,47 @@ function App() {
               {timeRemaining !== null ? `${timeRemaining}s` : '...'}
             </p>
 
-            {lastAnswerResult && (
+            {lastAnswer && (
               <p>
-                Last answer:{' '}
-                {lastAnswerResult.ok
-                  ? lastAnswerResult.isCorrect
-                    ? `Correct! +${lastAnswerResult.pointsAwarded} points (base ${lastAnswerResult.basePoints}, bonus ${lastAnswerResult.speedBonus})`
-                    : 'Incorrect.'
-                  : `Error: ${lastAnswerResult.error || 'unknown error'}`}
+                {lastAnswer.isCorrect
+                  ? `Correct! +${lastAnswer.pointsAwarded} points (base ${lastAnswer.basePoints}, bonus ${lastAnswer.speedBonus})`
+                  : 'Incorrect.'}
               </p>
             )}
           </>
         )}
 
-        {!question && countdown === null && !finalResults && (
-          <p>No question active yet. Host must start the game.</p>
-        )}
-
-        {leaderboard.length > 0 && !finalResults && (
+        {/* Between questions: feedback + leaderboard */}
+        {!question && lastQuestionSummary && !gameEnded && (
           <div style={{ marginTop: '1rem' }}>
-            <h3>Current Leaderboard</h3>
+            <h3>Question Result</h3>
+            {lastAnswer && (
+              <>
+                <p>
+                  {lastAnswer.isCorrect ? 'Correct!' : 'Incorrect.'}{' '}
+                  You earned {lastAnswer.pointsAwarded} points this round
+                  (base {lastAnswer.basePoints}, speed bonus{' '}
+                  {lastAnswer.speedBonus}).
+                </p>
+                <p>
+                  Your total score:{' '}
+                  {lastAnswer.totalScoreAfter}
+                </p>
+                {lastAnswer.suspicious && (
+                  <p style={{ color: 'orange' }}>
+                    Note: Your answer was extremely fast and may be flagged as suspicious.
+                  </p>
+                )}
+              </>
+            )}
+
+            <p>
+              Correct answer:{' '}
+              <strong>{lastQuestionSummary.correctAnswer}</strong>
+            </p>
+            <p>{lastQuestionSummary.explanation}</p>
+
+            <h4>Leaderboard</h4>
             <ol>
               {leaderboard.map((entry) => (
                 <li
@@ -455,31 +519,46 @@ function App() {
                       entry.username === username ? 'bold' : 'normal'
                   }}
                 >
-                  #{entry.rank} {entry.username} — {entry.totalScore} pts
+                  #{entry.rank} – {entry.username} ({entry.totalScore} pts)
                 </li>
               ))}
             </ol>
+
+            <p>Next question will start automatically...</p>
           </div>
         )}
 
-        {finalResults && (
+        {/* Final game results */}
+        {gameEnded && (
           <div style={{ marginTop: '1.5rem' }}>
-            <h3>Final Results</h3>
-            <ol>
-              {finalResults.map((entry) => (
-                <li
-                  key={entry.username}
-                  style={{
-                    fontWeight:
-                      entry.username === username ? 'bold' : 'normal'
-                  }}
-                >
-                  #{entry.rank} {entry.username} — {entry.totalScore} pts
-                </li>
-              ))}
-            </ol>
+            <h3>Game Over – Final Rankings</h3>
+            {finalRankings.length === 0 ? (
+              <p>No rankings available.</p>
+            ) : (
+              <ol>
+                {finalRankings.map((entry) => (
+                  <li
+                    key={entry.username}
+                    style={{
+                      fontWeight:
+                        entry.username === username ? 'bold' : 'normal'
+                    }}
+                  >
+                    #{entry.rank} – {entry.username} ({entry.totalScore} pts)
+                  </li>
+                ))}
+              </ol>
+            )}
           </div>
         )}
+
+        {/* Idle message (before start) */}
+        {!question &&
+          !lastQuestionSummary &&
+          !gameEnded &&
+          countdown === null && (
+            <p>No question active yet. Host must start the game.</p>
+          )}
       </section>
     </div>
   );
