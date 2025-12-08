@@ -1,5 +1,5 @@
 // client/src/App.jsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { getSocket } from './lib/socket';
 
 function App() {
@@ -16,6 +16,9 @@ function App() {
   const [countdown, setCountdown] = useState(null);
   const [question, setQuestion] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(null);
+
+  // Holds the active timer interval id
+  const timerIntervalRef = useRef(null);
 
   // Per-player feedback
   const [lastAnswerResult, setLastAnswerResult] = useState(null);
@@ -60,12 +63,20 @@ function App() {
       setFinalResults(null);
     }
 
-    function onQuestion(payload) {
+        function onQuestion(payload) {
       console.log('question', payload);
       setQuestion(payload);
-      setLastAnswerResult(null);
-      setLeaderboard([]);
 
+      // Clear any previous timer to avoid overlaps/flashing
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+
+      // Reset timeRemaining for the new question
+      setTimeRemaining(null);
+
+      // Setup client-side timer based on serverStartTime + timeLimit
       const totalMs = payload.timeLimit * 1000;
       const start = payload.serverStartTime;
       const endTime = start + totalMs;
@@ -81,19 +92,27 @@ function App() {
         return true;
       }
 
-      updateTimer(); // initial call
+      updateTimer(); // initial snapshot
 
-      const intervalId = setInterval(() => {
+      timerIntervalRef.current = setInterval(() => {
         const stillRunning = updateTimer();
         if (!stillRunning) {
-          clearInterval(intervalId);
+          clearInterval(timerIntervalRef.current);
+          timerIntervalRef.current = null;
         }
       }, 250);
     }
 
+
     function onQuestionEnded(payload) {
       console.log('question_ended', payload);
       setLeaderboard(payload.leaderboard || []);
+
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
+      setTimeRemaining(0);
     }
 
     function onGameEnded(payload) {
@@ -122,6 +141,11 @@ function App() {
       socket.off('question', onQuestion);
       socket.off('question_ended', onQuestionEnded);
       socket.off('game_ended', onGameEnded);
+
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
+      }
     };
   }, [socket]);
 

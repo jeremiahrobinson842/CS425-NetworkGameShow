@@ -3,83 +3,94 @@
 /**
  * Scoring engine for Network Game Show.
  *
- * Responsibilities:
- * - Given correctness, elapsed time, and time limit,
- *   compute base points + speed bonus.
- * - Flag suspiciously fast answers (< 1 second).
- *
- * Scoring rules:
- * - Correct answer:
- *   - Base points: 100
- *   - Speed bonus: up to 50 points, linear from full time to 0
- *     (answer at t=0s => +50, at t=timeLimit => +0)
- * - Incorrect answer:
- *   - 0 points (no negative scoring)
- *
- * @module sockets/scoring
+ * Rules:
+ * - Correct answer: 100 base points
+ * - Speed bonus: up to 50 points, linear from 0s → timeLimit
+ * - Wrong answer: 0 points (no bonus)
+ * - "Suspicious" if answered in < 1000 ms
  */
 
 /**
- * @typedef {Object} ScoreInput
- * @property {boolean} isCorrect - Whether the answer is correct.
- * @property {number} elapsedMs - Time elapsed between question start and answer, in milliseconds.
- * @property {number} timeLimitSeconds - Time limit for the question, in seconds.
+ * @typedef {Object} ComputeScoreInput
+ * @property {string} answer - The chosen option letter (e.g. 'A', 'b', ' c ')
+ * @property {string} correctOption - The correct option letter from DB
+ * @property {number} timeLimitSeconds - Time limit for the question in seconds
+ * @property {number} questionStartTimeMs - Server timestamp when question started (Date.now())
+ * @property {number} submittedAtMs - Server timestamp when answer was received (Date.now())
  */
 
 /**
- * @typedef {Object} ScoreResult
- * @property {number} basePoints - Base points for correctness (0 or 100).
- * @property {number} speedBonus - Bonus points for speed (0–50).
- * @property {number} points - Total points = basePoints + speedBonus.
- * @property {number} clampedElapsedMs - Elapsed time after clamping (0..timeLimitMs).
- * @property {boolean} suspicious - True if elapsedMs < 1000ms (basic anti-cheat flag).
+ * @typedef {Object} ComputeScoreResult
+ * @property {number} pointsAwarded
+ * @property {number} basePoints
+ * @property {number} speedBonus
+ * @property {boolean} isCorrect
+ * @property {number} elapsedMs
+ * @property {boolean} suspicious
  */
 
 /**
- * Compute the score for a single answer.
+ * Normalize a raw option value to a clean single-letter code: 'A' | 'B' | 'C' | 'D'
  *
- * @param {ScoreInput} input
- * @returns {ScoreResult}
+ * @param {string} raw
+ * @returns {string}
+ */
+function normalizeOption(raw) {
+  if (!raw) return '';
+  // Take first non-whitespace character and uppercase it
+  const trimmed = String(raw).trim();
+  if (!trimmed) return '';
+  return trimmed[0].toUpperCase();
+}
+
+/**
+ * Compute scoring for a submitted answer.
+ *
+ * @param {ComputeScoreInput} input
+ * @returns {ComputeScoreResult}
  */
 function computeScore(input) {
-  const { isCorrect, elapsedMs, timeLimitSeconds } = input;
+  const {
+    answer,
+    correctOption,
+    timeLimitSeconds,
+    questionStartTimeMs,
+    submittedAtMs
+  } = input;
 
-  const timeLimitMs = Math.max(0, timeLimitSeconds * 1000);
+  const basePointsValue = 100;
+  const maxBonus = 50;
 
-  // Clamp elapsedMs into [0, timeLimitMs]
-  const clampedElapsedMs = Math.max(0, Math.min(elapsedMs, timeLimitMs));
+  // Normalize both values before comparison
+  const normalizedAnswer = normalizeOption(answer);
+  const normalizedCorrect = normalizeOption(correctOption);
 
-  const suspicious = clampedElapsedMs < 1000; // < 1 second
+  const elapsedMs = Math.max(0, submittedAtMs - questionStartTimeMs);
+  const totalMs = Math.max(1, timeLimitSeconds * 1000); // avoid divide by zero
 
-  if (!isCorrect) {
-    return {
-      basePoints: 0,
-      speedBonus: 0,
-      points: 0,
-      clampedElapsedMs,
-      suspicious
-    };
-  }
-
-  const basePoints = 100;
-
-  // Linear scale:
-  // - clampedElapsedMs = 0   => full bonus (50)
-  // - clampedElapsedMs = limit => 0 bonus
+  let isCorrect = false;
   let speedBonus = 0;
-  if (timeLimitMs > 0) {
-    const timeRemainingMs = timeLimitMs - clampedElapsedMs;
-    const fraction = timeRemainingMs / timeLimitMs; // 1.0 .. 0.0
-    speedBonus = Math.round(50 * fraction);
+  let pointsAwarded = 0;
+
+  if (normalizedAnswer && normalizedCorrect && normalizedAnswer === normalizedCorrect) {
+    isCorrect = true;
+
+    // Clamp elapsed to [0, totalMs]
+    const clampedElapsed = Math.min(Math.max(elapsedMs, 0), totalMs);
+    const remainingRatio = (totalMs - clampedElapsed) / totalMs; // 1.0 → 0.0
+
+    speedBonus = Math.round(maxBonus * remainingRatio);
+    pointsAwarded = basePointsValue + speedBonus;
   }
 
-  const points = basePoints + speedBonus;
+  const suspicious = elapsedMs < 1000;
 
   return {
-    basePoints,
-    speedBonus,
-    points,
-    clampedElapsedMs,
+    pointsAwarded,
+    basePoints: isCorrect ? basePointsValue : 0,
+    speedBonus: isCorrect ? speedBonus : 0,
+    isCorrect,
+    elapsedMs,
     suspicious
   };
 }

@@ -31,6 +31,8 @@ VALUES
  'B',
  'The Session layer sets up, manages, and tears down sessions between applications.', 'Medium'),
 
+ 
+
 -- TCP/IP & Protocols (5)
 ('TCP_IP', 'Which protocol provides connection-oriented, reliable delivery at the transport layer?', 
  'UDP', 'TCP', 'IP', 'ICMP', 'B',
@@ -133,3 +135,132 @@ VALUES
  'An attacker guesses passwords using a dictionary file.', 
  'An attacker plugs in an unauthorized wireless access point.', 'B',
  'In a MITM attack, the attacker sits between two parties to eavesdrop and potentially modify traffic.', 'Medium');
+
+-- ============================
+-- ADDITIONAL QUESTIONS (25)
+-- ============================
+
+-- OSI Model (5 more → total 10)
+INSERT INTO questions
+(category, text, option_a, option_b, option_c, option_d, correct_option, explanation, difficulty)
+VALUES
+('OSI', 'Which OSI layer performs encryption and data format translation?',
+ 'Application', 'Session', 'Presentation', 'Transport', 'C',
+ 'The Presentation layer handles encryption, compression, and data format translation.', 'Medium'),
+
+('OSI', 'Which OSI layer is responsible for establishing logical connections using IP addresses?',
+ 'Physical', 'Data Link', 'Network', 'Transport', 'C',
+ 'The Network layer uses logical addressing such as IP addresses to route packets.', 'Easy'),
+
+('OSI', 'Where does flow control at the end-to-end level primarily occur?',
+ 'Data Link layer', 'Transport layer', 'Network layer', 'Session layer', 'B',
+ 'End-to-end flow control is handled by the Transport layer.', 'Medium'),
+
+('OSI', 'Which OSI layer is closest to the end user?',
+ 'Application', 'Presentation', 'Session', 'Transport', 'A',
+ 'The Application layer provides services directly to user applications.', 'Easy'),
+
+('OSI', 'Which OSI layer is responsible for framing data for transmission?',
+ 'Physical', 'Data Link', 'Network', 'Presentation', 'B',
+ 'The Data Link layer packages raw bits into frames for reliable transmission.', 'Easy');
+
+-- TCP/IP & Protocols (5 more → total 10)
+INSERT INTO questions
+(category, text, option_a, option_b, option_c, option_d, correct_option, explanation, difficulty)
+VALUES
+('TCP_IP', 'Which protocol resolves IP addresses to MAC addresses on a local network?',
+ 'DNS', 'ARP', 'ICMP', 'DHCP', 'B',
+ 'ARP maps IP addresses to MAC addresses within the local network.', 'Easy'),
+
+('TCP_IP', 'Which protocol ensures reliable, ordered delivery of data?',
+ 'UDP', 'ICMP', 'TCP', 'IP', 'C',
+ 'TCP provides reliability, sequencing, and retransmission.', 'Easy'),
+
+('TCP_IP', 'Which protocol is commonly used to test network connectivity?',
+ 'DNS', 'ICMP', 'HTTP', 'SMTP', 'B',
+ 'ICMP is used for diagnostic tools like ping.', 'Easy'),
+
+('TCP_IP', 'What TCP mechanism prevents a sender from overwhelming a receiver?',
+ 'Encryption', 'Congestion control', 'Flow control', 'Segmentation', 'C',
+ 'Flow control ensures the sender does not exceed the receiver’s capacity.', 'Medium'),
+
+('TCP_IP', 'Which port is used by SMTP by default?',
+ '25', '53', '80', '443', 'A',
+ 'SMTP typically uses TCP port 25 to send email.', 'Easy');
+
+-- IP Addressing & Subnetting (5 more → total 10)
+INSERT INTO questions
+(category, text, option_a, option_b, option_c, option_d, correct_option, explanation, difficulty)
+VALUES
+('IP_SUBNETTING', 'What type of IP address is 127.0.0.1?',
+ 'Private', 'Loopback', 'Multicast', 'Broadcast', 'B',
+ '127.0.0.1 is the loopback address used for local host testing.', 'Easy'),
+
+('IP_SUBNETTING', 'Which prefix length provides 14 usable host addresses?',
+ '/28', '/27', '/26', '/25', 'A',
+ 'A /28 subnet has 16 total addresses, 14 usable after reserving network and broadcast.', 'Medium'),
+
+('IP_SUBNETTING', 'Which IPv4 class provides the largest number of networks?',
+ 'Class A', 'Class B', 'Class C', 'Class D', 'C',
+ 'Class C has the largest number of possible networks.', 'Medium'),
+
+('IP_SUBNETTING', 'What does CIDR allow administrators to do?',
+ 'Eliminate routers', 'Use classful addressing', 'Allocate address space more efficiently', 'Encrypt IP packets', 'C',
+ 'CIDR enables flexible prefix lengths for efficient IP allocation.', 'Medium'),
+
+('IP_SUBNETTING', 'Which address cannot be assigned to a host?',
+ '192.168.1.1', '192.168.1.255', '192.168.1.10', '192.168.1.100', 'B',
+ 'The broadcast address cannot be assigned to a host.', 'Easy');
+
+-- Routing Concepts (5 more → total 10)
+INSERT INTO questions
+(category, text, option_a, option_b, option_c, option_d, correct_option, explanation, difficulty)
+VALUES
+('ROUTING', 'Which routing protocol is classified as path-vector?',
+ 'OSPF', 'RIP', 'BGP', 'EIGRP', 'C',
+ 'BGP is a path-vector protocol used between autonomous systems.', 'Medium'),
+
+('ROUTING', 'Which routing protocol uses bandwidth as its primary metric?',
+ 'RIP', 'OSPF', 'EIGRP', 'BGP', 'C',
+ 'EIGRP uses bandwidth and delay to calculate routing metrics.', 'Medium'),
+
+('ROUTING', 'What happens when a routing loop occurs?',
+ 'Traffic is encrypted', 'Packets circulate endlessly', 'Routing tables synchronize', 'Latency decreases', 'B',
+ 'Routing loops cause packets to circulate endlessly until TTL expires.', 'Medium'),
+
+('ROUTING', 'Which command typically shows the routing table on a router?',
+ 'show ip route', 'show arp', 'show mac address-table', 'ping', 'A',
+ 'The routing table is displayed using show ip route.', 'Easy'),
+
+('ROUTING', 'Which value limits how long a packet can exist in a network?',
+ 'Cost', 'Metric', 'TTL', 'Bandwidth', 'C',
+ 'TTL (Time To Live) prevents packets from looping indefinitely.', 'Easy');
+
+-- Application Layer Protocols (2 more → total 5)
+INSERT INTO questions
+(category, text, option_a, option_b, option_c, option_d, correct_option, explanation, difficulty)
+VALUES
+('APP_PROTOCOLS', 'Which protocol allows file transfer between hosts?',
+ 'FTP', 'SMTP', 'HTTP', 'SNMP', 'A',
+ 'FTP is designed for transferring files between systems.', 'Easy'),
+
+('APP_PROTOCOLS', 'Which protocol is used to retrieve email from a server?',
+ 'SMTP', 'DNS', 'IMAP', 'HTTP', 'C',
+ 'IMAP allows clients to retrieve and manage email stored on a server.', 'Easy');
+
+-- Network Security (3 more → total 5)
+INSERT INTO questions
+(category, text, option_a, option_b, option_c, option_d, correct_option, explanation, difficulty)
+VALUES
+('SECURITY', 'Which security principle ensures users have only the access they need?',
+ 'Defense in depth', 'Least privilege', 'Availability', 'Non-repudiation', 'B',
+ 'Least privilege limits access rights to the minimum required.', 'Medium'),
+
+('SECURITY', 'What type of attack attempts to overwhelm a system with traffic?',
+ 'Spoofing', 'Phishing', 'DoS', 'SQL Injection', 'C',
+ 'A Denial-of-Service attack floods a system with excessive traffic.', 'Easy'),
+
+('SECURITY', 'Which technology encrypts traffic between two networks over the internet?',
+ 'Firewall', 'IDS', 'VPN', 'NAT', 'C',
+ 'VPNs create encrypted tunnels across untrusted networks.', 'Easy');
+

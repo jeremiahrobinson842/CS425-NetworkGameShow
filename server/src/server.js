@@ -114,7 +114,7 @@ function broadcastPlayerList(io, gameCode) {
  * @param {Server} io
  * @param {string} gameCode
  */
-function endQuestion(io, gameCode) {
+async function endQuestion(io, gameCode) {
   const room = gameRooms.get(gameCode);
   if (!room) {
     logger.warn('Attempted to end question for unknown gameCode', { gameCode });
@@ -177,6 +177,67 @@ function endQuestion(io, gameCode) {
   if (isLastQuestion) {
     room.status = 'completed';
 
+    // Persist final scores for this game into game_participants
+    try {
+      for (const p of room.players.values()) {
+        const username = p.username;
+        const finalScore = typeof p.totalScore === 'number' ? p.totalScore : 0;
+
+        let playerId = null;
+
+        if (username) {
+          // Ensure there is a players row for this username
+          const existingPlayerRes = await query(
+            'SELECT id FROM players WHERE username = $1',
+            [username]
+          );
+
+          if (existingPlayerRes.rows.length > 0) {
+            playerId = existingPlayerRes.rows[0].id;
+          } else {
+            const insertPlayerRes = await query(
+              'INSERT INTO players (username) VALUES ($1) RETURNING id',
+              [username]
+            );
+            playerId = insertPlayerRes.rows[0].id;
+          }
+        }
+
+        // Convert joinTimeMs (if present) to an ISO string timestamp
+        let joinTimeIso = new Date().toISOString();
+        if (p.joinTimeMs) {
+          joinTimeIso = new Date(p.joinTimeMs).toISOString();
+        }
+
+        await query(
+          `
+            INSERT INTO game_participants (
+              game_id,
+              player_id,
+              join_time,
+              final_score
+            )
+            VALUES ($1, $2, $3, $4)
+          `,
+          [
+            room.gameId,     // game_id
+            playerId,        // player_id
+            joinTimeIso,     // join_time
+            finalScore       // final_score
+          ]
+        );
+      }
+
+      logger.info('Persisted game participants to DB', {
+        gameId: room.gameId,
+        gameCode,
+        participantCount: room.players.size
+      });
+    } catch (err) {
+      // Don’t break the game end if DB writes fail; just log.
+      logger.error('Failed to persist game participants', err);
+    }
+
     logger.info('Emitting game_ended', {
       gameCode,
       totalQuestions: room.questions.length
@@ -185,11 +246,12 @@ function endQuestion(io, gameCode) {
     io.to(gameCode).emit('game_ended', {
       gameCode,
       finalRankings: leaderboard
-      // Later we can include more per-player stats here.
+      // Later: can include more per-player stats here
     });
 
     return;
   }
+
 
   // Advance to next question after a short delay (e.g., 5 seconds)
   room.currentQuestionIndex += 1;
@@ -225,6 +287,11 @@ function broadcastNextQuestion(io, gameCode) {
   const q = room.questions[room.currentQuestionIndex];
   room.currentQuestionStartTime = Date.now();
   room.currentQuestionActive = true;
+
+  if (!room.answersReceived) {
+    room.answersReceived = {};
+  }
+  room.answersReceived[String(q.id)] = 0;
 
   // Clear any previous timeout
   if (room.currentQuestionTimeout) {
@@ -340,10 +407,13 @@ function createSocketServer(httpServer) {
             hostSocketId: null,
             currentQuestionStartTime: null,
             currentQuestionActive: false,
-            currentQuestionTimeout: null
+            currentQuestionTimeout: null,
+            // Track how many players have answered each questionId
+            answersReceived: {} // key: questionId (string), value: count
           };
           gameRooms.set(normalizedCode, room);
         }
+
 
         const hostFlag = !!isHost;
 
@@ -355,13 +425,14 @@ function createSocketServer(httpServer) {
         // Add to Socket.io room
         await socket.join(normalizedCode);
 
-        // Add to in-memory players list (extended for scoring)
         room.players.set(socket.id, {
           username,
           isHost: hostFlag,
           totalScore: 0,
-          answers: {}
+          answers: {},
+          joinTimeMs: Date.now()
         });
+
 
         if (hostFlag) {
           room.hostSocketId = socket.id;
@@ -527,7 +598,7 @@ function createSocketServer(httpServer) {
      *   answer: 'A' | 'B' | 'C' | 'D'
      * }
      */
-    socket.on('submit_answer', (payload, ack) => {
+        socket.on('submit_answer', async (payload, ack) => {
       try {
         const { gameCode, questionId, answer } = payload || {};
 
@@ -568,6 +639,11 @@ function createSocketServer(httpServer) {
           return ack && ack({ ok: false, error: msg });
         }
 
+        // Make sure player.answers exists
+        if (!player.answers) {
+          player.answers = {};
+        }
+
         // Prevent multiple submissions for same question
         if (player.answers[questionId]) {
           const msg = 'Answer already submitted for this question';
@@ -590,97 +666,169 @@ function createSocketServer(httpServer) {
           return ack && ack({ ok: false, error: msg });
         }
 
+        // --------- SCORING (existing logic, now explicit) ---------
         const now = Date.now();
-        const elapsedMs = now - startTime;
-        const timeLimitSeconds = room.timePerQuestion;
-        const totalMs = timeLimitSeconds * 1000;
 
-        // If answer is late, treat as incorrect for now
-        if (elapsedMs > totalMs) {
-          logger.info('Late answer received (after time limit)', {
-            socketId: socket.id,
-            gameCode: normalizedCode,
-            questionId,
-            elapsedMs,
-            totalMs
-          });
-
-          player.answers[questionId] = {
-            chosenOption: answer,
-            isCorrect: false,
-            points: 0,
-            elapsedMs,
-            suspicious: false
-          };
-
-          return ack && ack({
-            ok: false,
-            error: 'Answer submitted after time expired',
-            late: true
-          });
-        }
-
-        const isCorrect = (answer === currentQuestion.correct_option);
-
-        // Use the scoring engine
         const scoreResult = computeScore({
-          isCorrect,
-          elapsedMs,
-          timeLimitSeconds
+          answer,
+          correctOption: currentQuestion.correct_option,
+          timeLimitSeconds: room.timePerQuestion,
+          questionStartTimeMs: startTime,
+          submittedAtMs: now
         });
 
-        // Update in-memory totals
-        player.totalScore += scoreResult.points;
+        const {
+          pointsAwarded,
+          basePoints,
+          speedBonus,
+          isCorrect,
+          elapsedMs,
+          suspicious
+        } = scoreResult;
+
+        // Update in-memory player state
+        if (typeof player.totalScore !== 'number') {
+          player.totalScore = 0;
+        }
+        player.totalScore += pointsAwarded;
+
         player.answers[questionId] = {
           chosenOption: answer,
           isCorrect,
-          points: scoreResult.points,
-          elapsedMs: scoreResult.clampedElapsedMs,
-          suspicious: scoreResult.suspicious
+          pointsAwarded,
+          basePoints,
+          speedBonus,
+          elapsedMs,
+          suspicious
         };
 
-        logger.info('submit_answer scored', {
+        logger.debug('Answer scored in memory', {
           gameCode: normalizedCode,
-          questionId,
           username: player.username,
+          questionId,
+          pointsAwarded,
+          totalScore: player.totalScore,
           isCorrect,
-          points: scoreResult.points,
-          basePoints: scoreResult.basePoints,
-          speedBonus: scoreResult.speedBonus
+          elapsedMs,
+          suspicious
         });
 
-        // Acknowledge back to this player
-        ack && ack({
-          ok: true,
-          isCorrect,
-          pointsAwarded: scoreResult.points,
-          basePoints: scoreResult.basePoints,
-          speedBonus: scoreResult.speedBonus
-        });
+        // --------- PERSIST ANSWER TO DATABASE ---------
+        try {
+          const username = player.username;
+          let playerId = null;
 
-        // If all players have answered this question, end it early.
-        const totalPlayers = room.players.size;
-        let answeredCount = 0;
-        for (const p of room.players.values()) {
-          if (p.answers[questionId]) {
-            answeredCount += 1;
+          if (username) {
+            // See if this username already exists in players
+            const existingPlayerRes = await query(
+              'SELECT id FROM players WHERE username = $1',
+              [username]
+            );
+
+            if (existingPlayerRes.rows.length > 0) {
+              playerId = existingPlayerRes.rows[0].id;
+            } else {
+              // Insert new player row
+              const insertPlayerRes = await query(
+                'INSERT INTO players (username) VALUES ($1) RETURNING id',
+                [username]
+              );
+              playerId = insertPlayerRes.rows[0].id;
+            }
           }
+
+          // Insert the answer row
+          await query(
+            `
+              INSERT INTO answers (
+                game_id,
+                player_id,
+                question_id,
+                chosen_option,
+                is_correct,
+                response_time_ms,
+                created_at
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, NOW())
+            `,
+            [
+              room.gameId,     // which game
+              playerId,        // resolved from username (may be null if something is off)
+              questionId,      // currentQuestion.id
+              answer,          // 'A' | 'B' | 'C' | 'D'
+              isCorrect,       // boolean
+              elapsedMs        // ms from scoring
+            ]
+          );
+
+          logger.debug('Persisted answer to DB', {
+            gameId: room.gameId,
+            playerId,
+            questionId,
+            chosenOption: answer,
+            isCorrect,
+            responseTimeMs: elapsedMs
+          });
+        } catch (dbErr) {
+          // Do not break gameplay if DB persist fails
+          logger.error('Failed to persist answer to DB', dbErr);
         }
 
-        if (answeredCount >= totalPlayers) {
-          logger.info('All players answered; ending question early', {
+        // --------- ACK BACK TO CLIENT ---------
+                // --------- ACK BACK TO CLIENT ---------
+        ack &&
+          ack({
+            ok: true,
+            pointsAwarded,
+            basePoints,
+            speedBonus,
+            elapsedMs,
+            isCorrect,
+            suspicious,
+            totalScore: player.totalScore
+          });
+
+        // --------- TRACK ANSWERS & END EARLY IF ALL ANSWERED ---------
+        if (!room.answersReceived) {
+          room.answersReceived = {};
+        }
+
+        const questionKey = String(questionId);
+        room.answersReceived[questionKey] =
+          (room.answersReceived[questionKey] || 0) + 1;
+
+        const totalPlayers = room.players.size;
+
+        logger.debug('Answer count updated for question', {
+          gameCode: normalizedCode,
+          questionId,
+          answersForQuestion: room.answersReceived[questionKey],
+          totalPlayers
+        });
+
+        // If all players have answered and the question is still active,
+        // end the question early.
+        if (
+          room.currentQuestionActive &&
+          room.answersReceived[questionKey] >= totalPlayers
+        ) {
+          logger.info('All players answered, ending question early', {
             gameCode: normalizedCode,
-            questionId,
-            answeredCount,
-            totalPlayers
+            questionId
           });
           endQuestion(io, normalizedCode);
         }
+
+
       } catch (err) {
         logger.error('Error handling submit_answer', err);
-        ack && ack({ ok: false, error: 'Internal server error in submit_answer' });
+        return ack && ack({
+          ok: false,
+          error: 'Internal server error while submitting answer'
+        });
       }
     });
+
 
     // -------------------------------
     // disconnect
