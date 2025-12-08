@@ -147,16 +147,36 @@ async function endQuestion(io, gameCode) {
 
   // Build leaderboard from in-memory scores
   const leaderboard = Array.from(room.players.values())
-    .map((p) => ({
-      username: p.username,
-      totalScore: p.totalScore || 0
-    }))
+    .map((p) => {
+      const answers = Object.values(p.answers || {});
+      const answeredCount = answers.length;
+
+      const correctAnswers = answers.filter((a) => a.isCorrect).length;
+
+      const avgResponseMs =
+        answeredCount > 0
+          ? Math.round(
+              answers.reduce((sum, a) => sum + (a.elapsedMs || 0), 0) /
+                answeredCount
+            )
+          : null;
+
+      return {
+        username: p.username,
+        totalScore: p.totalScore || 0,
+        correctAnswers,
+        avgResponseMs
+      };
+    })
     .sort((a, b) => b.totalScore - a.totalScore)
     .map((p, i) => ({
       rank: i + 1,
       username: p.username,
-      totalScore: p.totalScore
+      totalScore: p.totalScore,
+      correctAnswers: p.correctAnswers,
+      avgResponseMs: p.avgResponseMs
     }));
+
 
   logger.info('Emitting question_ended', {
     gameCode,
@@ -245,8 +265,8 @@ async function endQuestion(io, gameCode) {
 
     io.to(gameCode).emit('game_ended', {
       gameCode,
+      totalQuestions: room.questions.length,
       finalRankings: leaderboard
-      // Later: can include more per-player stats here
     });
 
     return;

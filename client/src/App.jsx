@@ -30,6 +30,7 @@ function App() {
   // Game-end state
   const [gameEnded, setGameEnded] = useState(false);
   const [finalRankings, setFinalRankings] = useState([]);
+  const [finalTotalQuestions, setFinalTotalQuestions] = useState(null);
 
   const socket = getSocket();
 
@@ -67,6 +68,7 @@ function App() {
       setLeaderboard([]);
       setGameEnded(false);
       setFinalRankings([]);
+      setFinalTotalQuestions(null);
     }
 
     function onQuestion(payload) {
@@ -148,6 +150,7 @@ function App() {
       setQuestion(null);
       setCountdown(null);
       setGameEnded(true);
+      setFinalTotalQuestions(payload.totalQuestions || null);
       setFinalRankings(payload.finalRankings || []);
     }
 
@@ -491,13 +494,11 @@ function App() {
                   (base {lastAnswer.basePoints}, speed bonus{' '}
                   {lastAnswer.speedBonus}).
                 </p>
-                <p>
-                  Your total score:{' '}
-                  {lastAnswer.totalScoreAfter}
-                </p>
+                <p>Your total score: {lastAnswer.totalScoreAfter}</p>
                 {lastAnswer.suspicious && (
                   <p style={{ color: 'orange' }}>
-                    Note: Your answer was extremely fast and may be flagged as suspicious.
+                    Note: Your answer was extremely fast and may be flagged as
+                    suspicious.
                   </p>
                 )}
               </>
@@ -532,22 +533,58 @@ function App() {
         {gameEnded && (
           <div style={{ marginTop: '1.5rem' }}>
             <h3>Game Over – Final Rankings</h3>
+
             {finalRankings.length === 0 ? (
               <p>No rankings available.</p>
             ) : (
-              <ol>
-                {finalRankings.map((entry) => (
-                  <li
-                    key={entry.username}
-                    style={{
-                      fontWeight:
-                        entry.username === username ? 'bold' : 'normal'
-                    }}
-                  >
-                    #{entry.rank} – {entry.username} ({entry.totalScore} pts)
-                  </li>
-                ))}
-              </ol>
+              <>
+                {finalTotalQuestions != null && (
+                  <p>Total Questions: {finalTotalQuestions}</p>
+                )}
+
+                <ol>
+                  {finalRankings.map((entry) => {
+                    const percentCorrect =
+                      finalTotalQuestions &&
+                      typeof entry.correctAnswers === 'number'
+                        ? Math.round(
+                            (entry.correctAnswers / finalTotalQuestions) * 100
+                          )
+                        : null;
+
+                    const avgSeconds =
+                      entry.avgResponseMs != null
+                        ? (entry.avgResponseMs / 1000).toFixed(1)
+                        : null;
+
+                    return (
+                      <li
+                        key={entry.username}
+                        style={{
+                          fontWeight:
+                            entry.username === username ? 'bold' : 'normal'
+                        }}
+                      >
+                        #{entry.rank} – {entry.username} ({entry.totalScore} pts)
+                        {typeof entry.correctAnswers === 'number' && (
+                          <>
+                            {' '}
+                            | Correct: {entry.correctAnswers}
+                            {finalTotalQuestions
+                              ? ` / ${finalTotalQuestions}${
+                                  percentCorrect != null
+                                    ? ` (${percentCorrect}%)`
+                                    : ''
+                                }`
+                              : ''}
+                          </>
+                        )}
+                        {avgSeconds && <> | Avg time: {avgSeconds}s</>}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </>
             )}
           </div>
         )}
