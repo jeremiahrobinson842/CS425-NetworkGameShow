@@ -229,18 +229,10 @@ git commit -m "Short description of feature or fix"
 git push -u origin <branch-name>
 ```
 
-### Merging
-#### Merging with permanent user branch
-```
-git checkout <user-branch>
-git merge <branch-name>
-git push
-```
-
 #### Merging with dev branch
 ```
 git checkout dev
-git merge <user-branch>
+git merge <feature-branch>
 git push
 ```
 Test the dev branch for full functionality prior to merging with `main` branch
