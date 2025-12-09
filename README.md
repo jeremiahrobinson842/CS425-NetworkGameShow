@@ -14,12 +14,10 @@ We use a multi-branch model for safe collaboration:
 - All feature branches merge here first.
 - After testing and review, dev is merged into main.
 
-### Individual Branches
-Each team member has a personal permanent branch:
-- jeremiahrobinson842
-
-Work is done in short-lived feature branches based on these personal branches, for example:
-- jeremiahrobinson842/feature-socket-lobby
+### feature/bug branch
+- All work to be done here
+- Work only in the scope of the feature that is being implemented or bug that is being fixed
+- Test before merging into dev
 
 ### Workflow
 1. Developer creates feature branch from their personal branch.
