@@ -67,6 +67,22 @@ function info(message, meta) {
 }
 
 /**
+ * Logs a warning-level message to the console.
+ * Useful for unexpected but non-fatal situations.
+ *
+ * @param {string} message - The warning message to log.
+ * @param {object} [meta] - Optional additional metadata to log.
+ * @returns {void}
+ */
+function warn(message, meta) {
+  if (meta) {
+    console.warn(`[${getTimestamp()}] [WARN ] ${message}`, meta);
+  } else {
+    console.warn(`[${getTimestamp()}] [WARN ] ${message}`);
+  }
+}
+
+/**
  * Logs an error-level message to the console.
  * Error messages are used for:
  * - Unexpected exceptions
@@ -92,6 +108,6 @@ function error(message, err) {
 module.exports = {
   debug,
   info,
+  warn,
   error
 };
-
