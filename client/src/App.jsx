@@ -21,6 +21,8 @@ function App() {
   const timerIntervalRef = useRef(null);
   // Timer interval for pre-game countdown
   const countdownIntervalRef = useRef(null);
+  // Timer interval for between-round countdown
+  const betweenRoundIntervalRef = useRef(null);
 
   // Per-question feedback for THIS player
   const [lastAnswer, setLastAnswer] = useState(null); // result of your last submit
@@ -33,6 +35,7 @@ function App() {
   const [gameEnded, setGameEnded] = useState(false);
   const [finalRankings, setFinalRankings] = useState([]);
   const [finalTotalQuestions, setFinalTotalQuestions] = useState(null);
+  const [betweenRoundCountdown, setBetweenRoundCountdown] = useState(null);
 
   const socket = getSocket();
 
@@ -77,6 +80,7 @@ function App() {
       setGameEnded(false);
       setFinalRankings([]);
       setFinalTotalQuestions(null);
+      setBetweenRoundCountdown(null);
 
       // Local ticking countdown (server only sends the starting value)
       countdownIntervalRef.current = setInterval(() => {
@@ -96,6 +100,12 @@ function App() {
       console.log('question', payload);
       setQuestion(payload);
       setCountdown(null);
+      setBetweenRoundCountdown(null);
+
+      if (betweenRoundIntervalRef.current) {
+        clearInterval(betweenRoundIntervalRef.current);
+        betweenRoundIntervalRef.current = null;
+      }
 
       // Clear any previous timer to avoid overlaps/flashing
       if (timerIntervalRef.current) {
@@ -147,6 +157,7 @@ function App() {
 
       // End of this question
       setQuestion(null);
+      setBetweenRoundCountdown(5);
 
       // Store summary + leaderboard for UI
       setLastQuestionSummary({
@@ -157,6 +168,23 @@ function App() {
       });
 
       setLeaderboard(payload.leaderboard || []);
+
+      // Start local between-round countdown (server waits ~5s)
+      if (betweenRoundIntervalRef.current) {
+        clearInterval(betweenRoundIntervalRef.current);
+        betweenRoundIntervalRef.current = null;
+      }
+      betweenRoundIntervalRef.current = setInterval(() => {
+        setBetweenRoundCountdown((prev) => {
+          if (prev === null) return prev;
+          if (prev <= 1) {
+            clearInterval(betweenRoundIntervalRef.current);
+            betweenRoundIntervalRef.current = null;
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     }
 
     function onGameEnded(payload) {
@@ -171,6 +199,7 @@ function App() {
       setTimeRemaining(null);
       setQuestion(null);
       setCountdown(null);
+      setBetweenRoundCountdown(null);
       setGameEnded(true);
       setLastQuestionSummary(null); // clear per-question UI so we only see final screen
       setFinalTotalQuestions(
@@ -207,6 +236,10 @@ function App() {
       if (countdownIntervalRef.current) {
         clearInterval(countdownIntervalRef.current);
         countdownIntervalRef.current = null;
+      }
+      if (betweenRoundIntervalRef.current) {
+        clearInterval(betweenRoundIntervalRef.current);
+        betweenRoundIntervalRef.current = null;
       }
     };
   }, [socket]);
@@ -558,7 +591,10 @@ function App() {
               ))}
             </ol>
 
-            <p>Next question will start automatically...</p>
+            <p>
+              Next round starts in{' '}
+              {betweenRoundCountdown !== null ? betweenRoundCountdown : '...'}s
+            </p>
           </div>
         )}
 
