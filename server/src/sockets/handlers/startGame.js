@@ -24,6 +24,12 @@ async function handleStartGame(io, socket, payload, ack) {
       return ack && ack({ ok: false, error: msg });
     }
 
+    if (room.status === 'in_progress') {
+      const msg = 'Game already in progress';
+      logger.warn(msg, { socketId: socket.id, gameCode: normalizedCode });
+      return ack && ack({ ok: false, error: msg });
+    }
+
     if (room.hostSocketId !== socket.id) {
       const msg = 'Only the host can start the game';
       logger.warn(msg, { socketId: socket.id, gameCode: normalizedCode });
@@ -40,34 +46,48 @@ async function handleStartGame(io, socket, payload, ack) {
       return ack && ack({ ok: false, error: msg });
     }
 
-    if (!room.questions || room.questions.length === 0) {
-      const gameRes = await query(
-        'SELECT question_count, time_per_question FROM games WHERE id = $1',
-        [room.gameId]
-      );
-      const gameRow = gameRes.rows[0];
-      const questionCount = gameRow.question_count;
-
-      const qRes = await query(
-        `
-        SELECT id, category, text, option_a, option_b, option_c, option_d,
-               correct_option, explanation, difficulty
-        FROM questions
-        ORDER BY random()
-        LIMIT $1
-      `,
-        [questionCount]
-      );
-
-      room.questions = qRes.rows;
-      room.timePerQuestion = gameRow.time_per_question;
-      room.currentQuestionIndex = 0;
-
-      logger.info('Loaded questions for game room', {
-        gameCode: normalizedCode,
-        questionCount: room.questions.length
-      });
+    // Reset room state for a new game run
+    if (room.currentQuestionTimeout) {
+      clearTimeout(room.currentQuestionTimeout);
+      room.currentQuestionTimeout = null;
     }
+    room.currentQuestionIndex = 0;
+    room.currentQuestionActive = false;
+    room.currentQuestionStartTime = null;
+    room.answersReceived = {};
+    // Reset player scores/answers/disconnected flags
+    room.players.forEach((p) => {
+      p.totalScore = 0;
+      p.answers = {};
+      p.disconnected = false;
+    });
+
+    // Always load a fresh set of questions for each game start
+    const gameRes = await query(
+      'SELECT question_count, time_per_question FROM games WHERE id = $1',
+      [room.gameId]
+    );
+    const gameRow = gameRes.rows[0];
+    const questionCount = gameRow.question_count;
+
+    const qRes = await query(
+      `
+      SELECT id, category, text, option_a, option_b, option_c, option_d,
+             correct_option, explanation, difficulty
+      FROM questions
+      ORDER BY random()
+      LIMIT $1
+    `,
+      [questionCount]
+    );
+
+    room.questions = qRes.rows;
+    room.timePerQuestion = gameRow.time_per_question;
+
+    logger.info('Loaded questions for game room', {
+      gameCode: normalizedCode,
+      questionCount: room.questions.length
+    });
 
     room.status = 'in_progress';
 
