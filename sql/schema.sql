@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS games (
     id                 SERIAL PRIMARY KEY,
     code               CHAR(6) UNIQUE NOT NULL,
     mode               VARCHAR(16) NOT NULL, -- e.g. 'classic'
-    question_count     INT NOT NULL CHECK (question_count BETWEEN 5 AND 20),
+    question_count     INT NOT NULL CHECK (question_count BETWEEN 1 AND 50),
     time_per_question  INT NOT NULL CHECK (time_per_question BETWEEN 10 AND 30),
     status             VARCHAR(16) NOT NULL, -- 'waiting','in_progress','completed'
     created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()

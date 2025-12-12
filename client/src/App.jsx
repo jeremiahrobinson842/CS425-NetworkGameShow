@@ -11,6 +11,14 @@ function App() {
   const [username, setUsername] = useState('');
   const [isHost, setIsHost] = useState(false);
   const [players, setPlayers] = useState([]);
+  const presetQuestionCounts = {
+    short: 5,
+    normal: 10,
+    long: 20
+  };
+  const [questionPreset, setQuestionPreset] = useState('normal');
+  const [questionCount, setQuestionCount] = useState(presetQuestionCounts.normal);
+  const [customQuestionCount, setCustomQuestionCount] = useState('');
 
   // Game-start + question state
   const [countdown, setCountdown] = useState(null);
@@ -244,6 +252,35 @@ function App() {
     };
   }, [socket]);
 
+  function handleSelectPreset(presetKey) {
+    const value = presetQuestionCounts[presetKey];
+    setQuestionPreset(presetKey);
+    setQuestionCount(value);
+    setCustomQuestionCount('');
+  }
+
+  function handleCustomQuestionCountChange(e) {
+    const raw = e.target.value;
+    setCustomQuestionCount(raw);
+    const parsed = Number(raw);
+    if (!raw) {
+      setQuestionPreset('custom');
+      return;
+    }
+    if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 50) {
+      if (parsed === presetQuestionCounts.short) {
+        setQuestionPreset('short');
+      } else if (parsed === presetQuestionCounts.normal) {
+        setQuestionPreset('normal');
+      } else if (parsed === presetQuestionCounts.long) {
+        setQuestionPreset('long');
+      } else {
+        setQuestionPreset('custom');
+      }
+      setQuestionCount(parsed);
+    }
+  }
+
   // Host: create game via REST then join via join_game
   async function handleCreateGame(e) {
     e.preventDefault();
@@ -252,37 +289,63 @@ function App() {
       return;
     }
 
+    const chosenCountRaw =
+      customQuestionCount !== '' ? Number(customQuestionCount) : Number(questionCount);
+    const parsedQuestionCount = chosenCountRaw;
+    if (
+      !Number.isInteger(parsedQuestionCount) ||
+      parsedQuestionCount < 1 ||
+      parsedQuestionCount > 50
+    ) {
+      alert('Question count must be an integer between 1 and 50.');
+      return;
+    }
+
     const body = {
       mode: 'classic',
-      questionCount: 10,
+      questionCount: parsedQuestionCount,
       timePerQuestion: 20
     };
 
-    const res = await fetch('http://localhost:4000/api/games/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
+    try {
+      const res = await fetch('http://localhost:4000/api/games/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
 
-    const data = await res.json();
-    console.log('Created game:', data);
-
-    setGameCode(data.gameCode);
-    setGameId(data.gameId);
-    setIsHost(true);
-
-    socket.emit(
-      'join_game',
-      { gameCode: data.gameCode, username, isHost: true },
-      (ack) => {
-        console.log('join_game ack (host):', ack);
-        if (!ack.ok) {
-          alert('Failed to join game as host: ' + ack.error);
-        } else {
-          setPlayers(ack.players || []);
-        }
+      const data = await res.json();
+      if (!res.ok || !data?.gameCode || !data?.gameId) {
+        const msg =
+          data && data.error
+            ? data.error
+            : 'Failed to create game. Please try again.';
+        alert(msg);
+        return;
       }
-    );
+
+      console.log('Created game:', data);
+
+      setGameCode(data.gameCode);
+      setGameId(data.gameId);
+      setIsHost(true);
+
+      socket.emit(
+        'join_game',
+        { gameCode: data.gameCode, username, isHost: true },
+        (ack) => {
+          console.log('join_game ack (host):', ack);
+          if (!ack?.ok) {
+            alert('Failed to join game as host: ' + (ack && ack.error));
+          } else {
+            setPlayers(ack.players || []);
+          }
+        }
+      );
+    } catch (err) {
+      console.error(err);
+      alert('Failed to create game. Please check your connection and try again.');
+    }
   }
 
   // Player: join existing game via join_game
@@ -421,7 +484,68 @@ function App() {
           <h2>Host Dashboard</h2>
           <form onSubmit={handleCreateGame}>
             <p>Mode: Classic (fixed for now)</p>
-            <p>Questions: 10 (fixed for now)</p>
+            <div style={{ marginBottom: '0.75rem' }}>
+              <p style={{ marginBottom: '0.5rem' }}>Questions:</p>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPreset('short')}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '0.4rem',
+                    border: '1px solid #4a90e2',
+                    background:
+                      questionPreset === 'short' ? '#4a90e2' : 'transparent',
+                    color: questionPreset === 'short' ? '#fff' : '#000'
+                  }}
+                >
+                  Short (5)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPreset('normal')}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '0.4rem',
+                    border: '1px solid #4a90e2',
+                    background:
+                      questionPreset === 'normal' ? '#4a90e2' : 'transparent',
+                    color: questionPreset === 'normal' ? '#fff' : '#000'
+                  }}
+                >
+                  Normal (10)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPreset('long')}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '0.4rem',
+                    border: '1px solid #4a90e2',
+                    background:
+                      questionPreset === 'long' ? '#4a90e2' : 'transparent',
+                    color: questionPreset === 'long' ? '#fff' : '#000'
+                  }}
+                >
+                  Long (20)
+                </button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  Custom:
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={customQuestionCount}
+                    onChange={handleCustomQuestionCountChange}
+                    placeholder="1-50"
+                    style={{ width: '4.5rem' }}
+                  />
+                </label>
+              </div>
+              <p style={{ marginTop: '0.35rem' }}>
+                Selected: <strong>{questionCount}</strong> questions
+              </p>
+            </div>
             <p>Time per question: 20 seconds (fixed for now)</p>
             <button type="submit">Create Game</button>
           </form>

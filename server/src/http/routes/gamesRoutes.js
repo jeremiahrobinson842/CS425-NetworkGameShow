@@ -32,11 +32,11 @@ router.post('/create', async (req, res) => {
 
     if (
       !Number.isInteger(parsedQuestionCount) ||
-      parsedQuestionCount < 5 ||
-      parsedQuestionCount > 20
+      parsedQuestionCount < 1 ||
+      parsedQuestionCount > 50
     ) {
       return res.status(400).json({
-        error: 'questionCount must be an integer between 5 and 20.'
+        error: 'questionCount must be an integer between 1 and 50.'
       });
     }
 
