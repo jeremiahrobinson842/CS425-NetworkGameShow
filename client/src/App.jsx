@@ -19,6 +19,8 @@ function App() {
 
   // Timer interval for question countdown
   const timerIntervalRef = useRef(null);
+  // Timer interval for pre-game countdown
+  const countdownIntervalRef = useRef(null);
 
   // Per-question feedback for THIS player
   const [lastAnswer, setLastAnswer] = useState(null); // result of your last submit
@@ -60,6 +62,12 @@ function App() {
 
     function onGameStarting(payload) {
       console.log('game_starting', payload);
+      // Clear any previous countdown interval
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
+      }
+
       setCountdown(payload.countdown);
 
       // Reset between games
@@ -69,11 +77,25 @@ function App() {
       setGameEnded(false);
       setFinalRankings([]);
       setFinalTotalQuestions(null);
+
+      // Local ticking countdown (server only sends the starting value)
+      countdownIntervalRef.current = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev === null) return prev;
+          if (prev <= 1) {
+            clearInterval(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     }
 
     function onQuestion(payload) {
       console.log('question', payload);
       setQuestion(payload);
+      setCountdown(null);
 
       // Clear any previous timer to avoid overlaps/flashing
       if (timerIntervalRef.current) {
@@ -181,6 +203,10 @@ function App() {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
         timerIntervalRef.current = null;
+      }
+      if (countdownIntervalRef.current) {
+        clearInterval(countdownIntervalRef.current);
+        countdownIntervalRef.current = null;
       }
     };
   }, [socket]);

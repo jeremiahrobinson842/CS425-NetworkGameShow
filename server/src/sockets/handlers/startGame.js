@@ -71,7 +71,7 @@ async function handleStartGame(io, socket, payload, ack) {
 
     room.status = 'in_progress';
 
-    const countdownSeconds = 3;
+    const countdownSeconds = 5;
     io.to(normalizedCode).emit('game_starting', { countdown: countdownSeconds });
 
     logger.info('Game starting countdown emitted', {
