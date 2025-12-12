@@ -1,7 +1,7 @@
 const logger = require('../../utils/logger');
 const { getRoom } = require('../../game/roomStore');
 const { broadcastPlayerList } = require('../../game/leaderboard');
-const { endQuestion } = require('../../game/questionFlow');
+const { endQuestion, endGame } = require('../../game/questionFlow');
 
 function handleDisconnect(io, socket, reason) {
   const { gameCode, username, isHost } = socket.data || {};
@@ -45,17 +45,22 @@ function handleDisconnect(io, socket, reason) {
 
   if (
     room.status === 'in_progress' &&
-    activePlayersCount < 2 &&
-    room.currentQuestionActive
+    activePlayersCount < 2
   ) {
-    logger.info(
-      'Active players dropped below 2; ending game early from disconnect handler',
-      {
-        gameCode,
-        activePlayersCount
-      }
-    );
-    endQuestion(io, gameCode, { forceGameEnd: true });
+    logger.info('Active players dropped below 2; ending game early from disconnect handler', {
+      gameCode,
+      activePlayersCount
+    });
+
+    if (room.currentQuestionActive) {
+      endQuestion(io, gameCode, { forceGameEnd: true });
+    } else {
+      const questionsPlayed = Math.min(
+        room.currentQuestionIndex || 0,
+        Array.isArray(room.questions) ? room.questions.length : 0
+      );
+      endGame(io, gameCode, questionsPlayed || room.questions?.length || 0);
+    }
   }
 }
 
