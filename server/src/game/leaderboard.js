@@ -8,9 +8,19 @@ function buildPlayerList(playersMap) {
     }));
 }
 
-function buildLeaderboard(room) {
+function buildLeaderboard(room, allowedQuestionIds) {
+  const allowedSet = Array.isArray(allowedQuestionIds)
+    ? new Set(allowedQuestionIds.map((id) => String(id)))
+    : null;
+
   const raw = Array.from(room.players.values()).map((p) => {
-    const answers = Object.values(p.answers || {});
+    const allAnswers = Object.entries(p.answers || {});
+    const answers = allowedSet
+      ? allAnswers
+          .filter(([qid]) => allowedSet.has(String(qid)))
+          .map(([, ans]) => ans)
+      : allAnswers.map(([, ans]) => ans);
+
     const answeredCount = answers.length;
     const correctAnswers = answers.filter((a) => a.isCorrect).length;
 
@@ -22,9 +32,14 @@ function buildLeaderboard(room) {
           )
         : null;
 
+    const totalScore = answers.reduce(
+      (sum, a) => sum + (a.pointsAwarded || 0),
+      0
+    );
+
     return {
       username: p.username,
-      totalScore: p.totalScore || 0,
+      totalScore,
       correctAnswers,
       avgResponseMs,
       disconnected: !!p.disconnected

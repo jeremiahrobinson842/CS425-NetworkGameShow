@@ -3,7 +3,7 @@ const { query } = require('../config/db');
 const { buildLeaderboard } = require('./leaderboard');
 const { getRoom } = require('./roomStore');
 
-async function endGame(io, gameCode, totalQuestionsActuallyPlayed, precomputedLeaderboard) {
+async function endGame(io, gameCode, totalQuestionsActuallyPlayed, allowedQuestionIds, precomputedLeaderboard) {
   const room = getRoom(gameCode);
   if (!room) {
     logger.warn('Attempted to end game for unknown gameCode', { gameCode });
@@ -12,7 +12,7 @@ async function endGame(io, gameCode, totalQuestionsActuallyPlayed, precomputedLe
 
   room.status = 'completed';
 
-  const leaderboard = precomputedLeaderboard || buildLeaderboard(room);
+  const leaderboard = precomputedLeaderboard || buildLeaderboard(room, allowedQuestionIds);
 
   try {
     for (const p of room.players.values()) {
@@ -115,7 +115,12 @@ async function endQuestion(io, gameCode, options = {}) {
 
   room.currentQuestionStartTime = null;
 
-  const leaderboard = buildLeaderboard(room);
+  const questionsPlayedSoFar = idx + 1;
+  const allowedQuestionIds = Array.isArray(room.questions)
+    ? room.questions.slice(0, questionsPlayedSoFar).map((q) => q.id)
+    : [];
+
+  const leaderboard = buildLeaderboard(room, allowedQuestionIds);
 
   logger.info('Emitting question_ended', {
     gameCode,
@@ -132,17 +137,21 @@ async function endQuestion(io, gameCode, options = {}) {
     leaderboard
   });
 
-  const questionsPlayedSoFar = idx + 1;
-
   if (forceGameEnd) {
-    await endGame(io, gameCode, questionsPlayedSoFar, leaderboard);
+    await endGame(io, gameCode, questionsPlayedSoFar, allowedQuestionIds, leaderboard);
     return;
   }
 
   const isLastQuestion = idx >= room.questions.length - 1;
 
   if (isLastQuestion) {
-    await endGame(io, gameCode, room.questions.length, leaderboard);
+    await endGame(
+      io,
+      gameCode,
+      room.questions.length,
+      Array.isArray(room.questions) ? room.questions.map((q) => q.id) : [],
+      leaderboard
+    );
     return;
   }
 

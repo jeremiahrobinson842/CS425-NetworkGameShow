@@ -1,5 +1,6 @@
 const logger = require('../../utils/logger');
 const { query } = require('../../config/db');
+const { getRandomQuestions } = require('../../db/queries/questions');
 const { getRoom } = require('../../game/roomStore');
 const { buildPlayerList } = require('../../game/leaderboard');
 const { broadcastNextQuestion } = require('../../game/questionFlow');
@@ -70,18 +71,9 @@ async function handleStartGame(io, socket, payload, ack) {
     const gameRow = gameRes.rows[0];
     const questionCount = gameRow.question_count;
 
-    const qRes = await query(
-      `
-      SELECT id, category, text, option_a, option_b, option_c, option_d,
-             correct_option, explanation, difficulty
-      FROM questions
-      ORDER BY random()
-      LIMIT $1
-    `,
-      [questionCount]
-    );
+    const questions = await getRandomQuestions(questionCount);
 
-    room.questions = qRes.rows;
+    room.questions = questions;
     room.timePerQuestion = gameRow.time_per_question;
 
     logger.info('Loaded questions for game room', {

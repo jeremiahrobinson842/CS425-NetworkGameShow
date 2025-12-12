@@ -31,6 +31,8 @@ function App() {
   const countdownIntervalRef = useRef(null);
   // Timer interval for between-round countdown
   const betweenRoundIntervalRef = useRef(null);
+  // Auto-leave after game end timeout
+  const gameEndTimeoutRef = useRef(null);
 
   // Per-question feedback for THIS player
   const [lastAnswer, setLastAnswer] = useState(null); // result of your last submit
@@ -44,7 +46,7 @@ function App() {
   const [finalRankings, setFinalRankings] = useState([]);
   const [finalTotalQuestions, setFinalTotalQuestions] = useState(null);
   const [betweenRoundCountdown, setBetweenRoundCountdown] = useState(null);
-
+  const [questionSelectionLocked, setQuestionSelectionLocked] = useState(false);
   const socket = getSocket();
 
   // Attach socket.io listeners once
@@ -79,6 +81,7 @@ function App() {
         countdownIntervalRef.current = null;
       }
 
+      setQuestionSelectionLocked(true);
       setCountdown(payload.countdown);
 
       // Reset between games
@@ -207,6 +210,7 @@ function App() {
       setTimeRemaining(null);
       setQuestion(null);
       setCountdown(null);
+      setQuestionSelectionLocked(false);
       setBetweenRoundCountdown(null);
       setGameEnded(true);
       setLastQuestionSummary(null); // clear per-question UI so we only see final screen
@@ -216,6 +220,19 @@ function App() {
           : null
       );
       setFinalRankings(payload.finalRankings || []);
+
+      // Auto-return to lobby/home after 10 seconds (keep lobby/code intact)
+      if (gameEndTimeoutRef.current) {
+        clearTimeout(gameEndTimeoutRef.current);
+      }
+      gameEndTimeoutRef.current = setTimeout(() => {
+        resetToLobbyAfterEnd();
+        gameEndTimeoutRef.current = null;
+      }, 10000);
+    }
+
+    function onHostLeft() {
+      handleLeaveGame();
     }
 
     socket.on('connect', onConnect);
@@ -226,6 +243,7 @@ function App() {
     socket.on('question', onQuestion);
     socket.on('question_ended', onQuestionEnded);
     socket.on('game_ended', onGameEnded);
+    socket.on('host_left', onHostLeft);
 
     return () => {
       socket.off('connect', onConnect);
@@ -236,6 +254,7 @@ function App() {
       socket.off('question', onQuestion);
       socket.off('question_ended', onQuestionEnded);
       socket.off('game_ended', onGameEnded);
+      socket.off('host_left', onHostLeft);
 
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
@@ -249,10 +268,15 @@ function App() {
         clearInterval(betweenRoundIntervalRef.current);
         betweenRoundIntervalRef.current = null;
       }
+      if (gameEndTimeoutRef.current) {
+        clearTimeout(gameEndTimeoutRef.current);
+        gameEndTimeoutRef.current = null;
+      }
     };
   }, [socket]);
 
   function handleSelectPreset(presetKey) {
+    if (questionSelectionLocked) return;
     const value = presetQuestionCounts[presetKey];
     setQuestionPreset(presetKey);
     setQuestionCount(value);
@@ -260,6 +284,7 @@ function App() {
   }
 
   function handleCustomQuestionCountChange(e) {
+    if (questionSelectionLocked) return;
     const raw = e.target.value;
     setCustomQuestionCount(raw);
     const parsed = Number(raw);
@@ -282,10 +307,13 @@ function App() {
   }
 
   // Host: create game via REST then join via join_game
+  const usernameIsValid = (name) => /^[a-zA-Z0-9]{1,15}$/.test(name);
+
   async function handleCreateGame(e) {
     e.preventDefault();
-    if (!username) {
-      alert('Enter a host username first.');
+    setQuestionSelectionLocked(false);
+    if (!usernameIsValid(username)) {
+      alert('Enter a host username (1-15 letters/numbers).');
       return;
     }
 
@@ -351,8 +379,12 @@ function App() {
   // Player: join existing game via join_game
   function handleJoinGame(e) {
     e.preventDefault();
-    if (!username || !gameCode) {
-      alert('Enter both game code and username.');
+    if (lockHostView && isHost) {
+      alert('Host cannot join as a player while a game with players is active.');
+      return;
+    }
+    if (!usernameIsValid(username) || !gameCode) {
+      alert('Enter both game code and a valid username (1-15 letters/numbers).');
       return;
     }
 
@@ -431,6 +463,143 @@ function App() {
   const playerCount = players.length;
   const canStart = isHost && playerCount >= 2;
   const totalQuestions = finalTotalQuestions; // convenience alias for JSX
+  const lockHostView = isHost && Boolean(gameCode) && playerCount > 1;
+  const lockPlayerView = !isHost && Boolean(gameCode);
+  const disableCreateGame = isHost && Boolean(gameCode) && playerCount >= 2 && !gameEnded;
+  const gamePhaseActive =
+    countdown !== null || question !== null || lastQuestionSummary !== null || gameEnded;
+  const formattedFinalLeaderboard = (() => {
+    if (!finalRankings || finalRankings.length === 0) return [];
+    const rows = finalRankings.map((entry) => {
+      const playerLabel = `${entry.username}${entry.disconnected ? ' (disconnected)' : ''}`;
+      const scoreLabel = `${entry.totalScore} pts`;
+      const correctLabel =
+        typeof entry.correctAnswers === 'number'
+          ? totalQuestions
+            ? `Correct: ${entry.correctAnswers}/${totalQuestions}`
+            : `Correct: ${entry.correctAnswers}`
+          : 'Correct: n/a';
+      const avgLabel =
+        entry.avgResponseMs != null
+          ? `Avg: ${(entry.avgResponseMs / 1000).toFixed(1)}s`
+          : '';
+
+      return { playerLabel, scoreLabel, correctLabel, avgLabel, rank: entry.rank };
+    });
+
+    const widths = rows.reduce(
+      (acc, row) => ({
+        player: Math.max(acc.player, row.playerLabel.length),
+        score: Math.max(acc.score, row.scoreLabel.length),
+        correct: Math.max(acc.correct, row.correctLabel.length),
+        avg: Math.max(acc.avg, row.avgLabel.length)
+      }),
+      { player: 0, score: 0, correct: 0, avg: 0 }
+    );
+
+    const pad = (val, len) => String(val).padEnd(len, ' ');
+
+    return rows.map((row) => {
+      const parts = [
+        `#${row.rank}`,
+        pad(row.playerLabel, widths.player),
+        pad(row.scoreLabel, widths.score),
+        pad(row.correctLabel, widths.correct)
+      ];
+      if (row.avgLabel) {
+        parts.push(pad(row.avgLabel, widths.avg));
+      }
+      return parts.join(' | ');
+    });
+  })();
+
+  useEffect(() => {
+    if (lockHostView && view === 'player') {
+      setView('host');
+    }
+    if (lockPlayerView && view === 'host') {
+      setView('player');
+    }
+  }, [lockHostView, lockPlayerView, view]);
+
+  function handleSwitchView(nextView) {
+    if (lockHostView && nextView === 'player') {
+      return;
+    }
+    if (lockPlayerView && nextView === 'host') {
+      return;
+    }
+    setView(nextView);
+  }
+
+  function handleLeaveGame() {
+    if (!gameCode && !socket.connected) {
+      return;
+    }
+
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+    if (countdownIntervalRef.current) {
+      clearInterval(countdownIntervalRef.current);
+      countdownIntervalRef.current = null;
+    }
+    if (betweenRoundIntervalRef.current) {
+      clearInterval(betweenRoundIntervalRef.current);
+      betweenRoundIntervalRef.current = null;
+    }
+
+    socket.disconnect();
+    setTimeout(() => {
+      if (!socket.connected) {
+        socket.connect();
+      }
+    }, 50);
+
+    setGameCode('');
+    setGameId(null);
+    setPlayers([]);
+    setIsHost(false);
+    setQuestion(null);
+    setCountdown(null);
+    setTimeRemaining(null);
+    setLastAnswer(null);
+    setLastQuestionSummary(null);
+    setLeaderboard([]);
+    setGameEnded(false);
+    setFinalRankings([]);
+    setFinalTotalQuestions(null);
+    setBetweenRoundCountdown(null);
+    setQuestionSelectionLocked(false);
+    setQuestionPreset('normal');
+    setQuestionCount(presetQuestionCounts.normal);
+    setCustomQuestionCount('');
+    if (gameEndTimeoutRef.current) {
+      clearTimeout(gameEndTimeoutRef.current);
+      gameEndTimeoutRef.current = null;
+    }
+    setView('host');
+  }
+
+  function resetToLobbyAfterEnd() {
+    // Keep lobby state/code/players, just reset game phase UI
+    setGameEnded(false);
+    setQuestion(null);
+    setCountdown(null);
+    setBetweenRoundCountdown(null);
+    setLastAnswer(null);
+    setLastQuestionSummary(null);
+    setLeaderboard([]);
+    setFinalRankings([]);
+    setFinalTotalQuestions(null);
+    setTimeRemaining(null);
+    setQuestionSelectionLocked(false);
+    if (gameEndTimeoutRef.current) {
+      clearTimeout(gameEndTimeoutRef.current);
+      gameEndTimeoutRef.current = null;
+    }
+  }
 
   return (
     <div style={{ padding: '1.5rem', fontFamily: 'system-ui' }}>
@@ -438,41 +607,21 @@ function App() {
 
       <div style={{ marginBottom: '1rem' }}>
         <button
-          onClick={() => setView('host')}
+          onClick={() => handleSwitchView('host')}
           style={{ marginRight: '0.5rem' }}
+          disabled={lockPlayerView}
         >
           Host View
         </button>
-        <button onClick={() => setView('player')}>Player View</button>
+        <button
+          onClick={() => handleSwitchView('player')}
+          disabled={lockHostView}
+        >
+          Player View
+        </button>
       </div>
 
-      <section
-        style={{
-          border: '1px solid #ccc',
-          padding: '1rem',
-          marginBottom: '1rem',
-          borderRadius: '0.5rem'
-        }}
-      >
-        <h2>Common Info</h2>
-        <div>
-          <label>
-            Username:{' '}
-            <input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </label>
-        </div>
-        <div>
-          <strong>Current Game Code:</strong> {gameCode || '(none yet)'}
-        </div>
-        <div>
-          <strong>Player Count:</strong> {playerCount}
-        </div>
-      </section>
-
-      {view === 'host' ? (
+      {!gamePhaseActive && (view === 'host' ? (
         <section
           style={{
             border: '1px solid #4a90e2',
@@ -482,72 +631,96 @@ function App() {
           }}
         >
           <h2>Host Dashboard</h2>
+          <div style={{ marginBottom: '0.75rem', position: 'relative' }}>
+            <button
+              type="button"
+              onClick={handleLeaveGame}
+              disabled={!gameCode}
+              style={{ position: 'absolute', top: 0, right: 0 }}
+            >
+              Leave Game
+            </button>
+              <label>
+                Username:{' '}
+                <input
+                  maxLength={15}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </label>
+          </div>
           <form onSubmit={handleCreateGame}>
             <p>Mode: Classic (fixed for now)</p>
-            <div style={{ marginBottom: '0.75rem' }}>
-              <p style={{ marginBottom: '0.5rem' }}>Questions:</p>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => handleSelectPreset('short')}
-                  style={{
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '0.4rem',
-                    border: '1px solid #4a90e2',
-                    background:
-                      questionPreset === 'short' ? '#4a90e2' : 'transparent',
-                    color: questionPreset === 'short' ? '#fff' : '#000'
-                  }}
-                >
-                  Short (5)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectPreset('normal')}
-                  style={{
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '0.4rem',
-                    border: '1px solid #4a90e2',
-                    background:
-                      questionPreset === 'normal' ? '#4a90e2' : 'transparent',
-                    color: questionPreset === 'normal' ? '#fff' : '#000'
-                  }}
-                >
-                  Normal (10)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSelectPreset('long')}
-                  style={{
-                    padding: '0.5rem 0.75rem',
-                    borderRadius: '0.4rem',
-                    border: '1px solid #4a90e2',
-                    background:
-                      questionPreset === 'long' ? '#4a90e2' : 'transparent',
-                    color: questionPreset === 'long' ? '#fff' : '#000'
-                  }}
-                >
-                  Long (20)
-                </button>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  Custom:
-                  <input
-                    type="number"
-                    min="1"
-                    max="50"
-                    value={customQuestionCount}
-                    onChange={handleCustomQuestionCountChange}
-                    placeholder="1-50"
-                    style={{ width: '4.5rem' }}
-                  />
-                </label>
-              </div>
+          <div style={{ marginBottom: '0.75rem' }}>
+            <p style={{ marginBottom: '0.5rem' }}>Questions:</p>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => handleSelectPreset('short')}
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '0.4rem',
+                  border: '1px solid #4a90e2',
+                  background:
+                    questionPreset === 'short' ? '#4a90e2' : 'transparent',
+                  color: questionPreset === 'short' ? '#fff' : '#000'
+                }}
+                disabled={questionSelectionLocked}
+              >
+                Short (5)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectPreset('normal')}
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '0.4rem',
+                  border: '1px solid #4a90e2',
+                  background:
+                    questionPreset === 'normal' ? '#4a90e2' : 'transparent',
+                  color: questionPreset === 'normal' ? '#fff' : '#000'
+                }}
+                disabled={questionSelectionLocked}
+              >
+                Normal (10)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectPreset('long')}
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  borderRadius: '0.4rem',
+                  border: '1px solid #4a90e2',
+                  background:
+                    questionPreset === 'long' ? '#4a90e2' : 'transparent',
+                  color: questionPreset === 'long' ? '#fff' : '#000'
+                }}
+                disabled={questionSelectionLocked}
+              >
+                Long (20)
+              </button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                Custom:
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  value={customQuestionCount}
+                  onChange={handleCustomQuestionCountChange}
+                  placeholder="1-50"
+                  style={{ width: '4.5rem' }}
+                  disabled={questionSelectionLocked}
+                />
+              </label>
+            </div>
               <p style={{ marginTop: '0.35rem' }}>
                 Selected: <strong>{questionCount}</strong> questions
               </p>
             </div>
             <p>Time per question: 20 seconds (fixed for now)</p>
-            <button type="submit">Create Game</button>
+            <button type="submit" disabled={questionSelectionLocked || disableCreateGame}>
+              Create Game
+            </button>
           </form>
 
           <h3>Lobby</h3>
@@ -563,7 +736,7 @@ function App() {
             ))}
           </ul>
           <button onClick={handleStartGame} disabled={!canStart}>
-            Start Game (requires ≥ 2 players)
+            Start Game (requires &gt;= 2 players)
           </button>
           {!canStart && isHost && (
             <p style={{ color: '#888' }}>
@@ -581,18 +754,44 @@ function App() {
           }}
         >
           <h2>Player Join</h2>
-          <form onSubmit={handleJoinGame}>
-            <div>
-              <label>
-                Game Code:{' '}
-                <input
-                  value={gameCode}
-                  onChange={(e) => setGameCode(e.target.value.toUpperCase())}
-                />
+          <div style={{ marginBottom: '0.75rem', position: 'relative' }}>
+            <button
+              type="button"
+              onClick={handleLeaveGame}
+              disabled={!gameCode}
+              style={{ position: 'absolute', top: 0, right: 0 }}
+            >
+              Leave Game
+            </button>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.25rem' }}>
+                Username:
               </label>
+              <input
+                style={{ width: '15%' }}
+                maxLength={15}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
             </div>
-            <button type="submit">Join Game</button>
-          </form>
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <label style={{ display: 'block', marginBottom: '0.25rem' }}>
+                Game Code:
+              </label>
+              <input
+                style={{ width: '15%' }}
+                maxLength={15}
+                value={gameCode}
+                onChange={(e) => setGameCode(e.target.value.toUpperCase())}
+              />
+            </div>
+
+            <button type="submit" style={{ width: '5%' }}>
+              Join Game
+            </button>
+          </div>
 
           <h3>Lobby</h3>
           <p>
@@ -607,16 +806,26 @@ function App() {
           </ul>
           <p>Waiting for host to start...</p>
         </section>
-      )}
+      ))}
 
-      <section
-        style={{
-          border: '1px solid #999',
-          padding: '1rem',
-          borderRadius: '0.5rem'
-        }}
-      >
-        <h2>Game View (Shared)</h2>
+      {gamePhaseActive && (
+        <section
+          style={{
+            border: '1px solid #999',
+            padding: '1rem',
+            borderRadius: '0.5rem',
+            position: 'relative'
+          }}
+        >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h2 style={{ margin: 0 }}>Game View (Shared)</h2>
+          <button
+            type="button"
+            onClick={handleLeaveGame}
+          >
+            Leave Game
+          </button>
+        </div>
 
         {/* Starting countdown */}
         {countdown !== null && !question && !gameEnded && (
@@ -735,49 +944,18 @@ function App() {
                   <p>Total Questions: {totalQuestions}</p>
                 )}
 
-                <ol>
-                  {finalRankings.map((entry) => {
-                    const percentCorrect =
-                      totalQuestions && typeof entry.correctAnswers === 'number'
-                        ? Math.round(
-                            (entry.correctAnswers / totalQuestions) * 100
-                          )
-                        : null;
-
-                    const avgSeconds =
-                      entry.avgResponseMs != null
-                        ? (entry.avgResponseMs / 1000).toFixed(1)
-                        : null;
-
-                    return (
-                      <li
-                        key={entry.username}
-                        style={{
-                          fontWeight:
-                            entry.username === username ? 'bold' : 'normal'
-                        }}
-                      >
-                        #{entry.rank} – {entry.username}{' '}
-                        {entry.disconnected && '(disconnected)'} (
-                        {entry.totalScore} pts)
-                        {typeof entry.correctAnswers === 'number' && (
-                          <>
-                            {' '}
-                            | Correct: {entry.correctAnswers}
-                            {totalQuestions
-                              ? ` / ${totalQuestions}${
-                                  percentCorrect != null
-                                    ? ` (${percentCorrect}%)`
-                                    : ''
-                                }`
-                              : ''}
-                          </>
-                        )}
-                        {avgSeconds && <> | Avg time: {avgSeconds}s</>}
-                      </li>
-                    );
-                  })}
-                </ol>
+                <pre
+                  style={{
+                    background: '#f7f7f7',
+                    padding: '0.75rem',
+                    borderRadius: '0.5rem',
+                    overflowX: 'auto',
+                    fontFamily: 'ui-monospace, SFMono-Regular, Consolas, monospace',
+                    fontSize: '0.95rem'
+                  }}
+                >
+                  {formattedFinalLeaderboard.join('\n')}
+                </pre>
               </>
             )}
           </div>
@@ -791,6 +969,7 @@ function App() {
             <p>No question active yet. Host must start the game.</p>
           )}
       </section>
+      )}
     </div>
   );
 }
