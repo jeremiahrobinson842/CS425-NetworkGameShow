@@ -650,7 +650,6 @@ function App() {
               </label>
           </div>
           <form onSubmit={handleCreateGame}>
-            <p>Mode: Classic (fixed for now)</p>
           <div style={{ marginBottom: '0.75rem' }}>
             <p style={{ marginBottom: '0.5rem' }}>Questions:</p>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -717,7 +716,7 @@ function App() {
                 Selected: <strong>{questionCount}</strong> questions
               </p>
             </div>
-            <p>Time per question: 20 seconds (fixed for now)</p>
+            <p>Time per question: 20 seconds</p>
             <button type="submit" disabled={questionSelectionLocked || disableCreateGame}>
               Create Game
             </button>
@@ -764,33 +763,35 @@ function App() {
               Leave Game
             </button>
 
-            <div style={{ marginBottom: '0.75rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.25rem' }}>
-                Username:
-              </label>
-              <input
-                style={{ width: '15%' }}
-                maxLength={15}
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-              />
-            </div>
+            <form onSubmit={handleJoinGame}>
+              <div style={{ marginBottom: '0.75rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.25rem' }}>
+                  Username:
+                </label>
+                <input
+                  style={{ width: '15%' }}
+                  maxLength={15}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
 
-            <div style={{ marginBottom: '0.75rem' }}>
-              <label style={{ display: 'block', marginBottom: '0.25rem' }}>
-                Game Code:
-              </label>
-              <input
-                style={{ width: '15%' }}
-                maxLength={15}
-                value={gameCode}
-                onChange={(e) => setGameCode(e.target.value.toUpperCase())}
-              />
-            </div>
+              <div style={{ marginBottom: '0.75rem' }}>
+                <label style={{ display: 'block', marginBottom: '0.25rem' }}>
+                  Game Code:
+                </label>
+                <input
+                  style={{ width: '15%' }}
+                  maxLength={15}
+                  value={gameCode}
+                  onChange={(e) => setGameCode(e.target.value.toUpperCase())}
+                />
+              </div>
 
-            <button type="submit" style={{ width: '5%' }}>
-              Join Game
-            </button>
+              <button type="submit" style={{ padding: '0.4rem 0.75rem' }}>
+                Join Game
+              </button>
+            </form>
           </div>
 
           <h3>Lobby</h3>
@@ -818,7 +819,7 @@ function App() {
           }}
         >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0 }}>Game View (Shared)</h2>
+          <h2 style={{ margin: 0 }}>Game View</h2>
           <button
             type="button"
             onClick={handleLeaveGame}
