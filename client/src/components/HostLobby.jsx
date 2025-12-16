@@ -34,7 +34,9 @@ function HostLobby({
         border: '1px solid #4a90e2',
         padding: '1rem',
         borderRadius: '0.5rem',
-        marginBottom: '1rem'
+        marginBottom: '1rem',
+        background: gameMode === 'team' ? '#f3e8ff' : '#eaf6ff',
+        transition: 'background 300ms ease'
       }}
     >
       <h2>Host Dashboard</h2>
@@ -83,45 +85,48 @@ function HostLobby({
           </label>
         </div>
 
-        {gameMode === 'team' && (
-          <div
-            style={{
-              marginBottom: '0.75rem',
-              display: 'flex',
-              gap: '1rem',
-              flexWrap: 'wrap',
-              alignItems: 'center'
-            }}
-          >
-            <label>
-              Number of teams (2-5):{' '}
-              <input
-                type="number"
-                min="2"
-                max="5"
-                value={teamCount}
-                onChange={(e) => setTeamCount(Number(e.target.value))}
-                style={{ width: '4rem' }}
-                disabled={questionSelectionLocked}
-              />
-            </label>
-            <label>
-              Host team #:{' '}
-              <input
-                type="number"
-                min="1"
-                max={teamCount || 5}
-                value={selectedTeamId}
-                onChange={(e) => setSelectedTeamId(Number(e.target.value))}
-                style={{ width: '3.5rem' }}
-                disabled={questionSelectionLocked}
-              />
-            </label>
-            <p style={{ margin: 0, color: '#555' }}>
-              Team games allow up to 10 players, at least 2 per team.
-            </p>
-          </div>
-        )}
+        <div
+          style={{
+            marginBottom: '0.75rem',
+            display: 'flex',
+            gap: '1rem',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            minHeight: '2rem'
+          }}
+        >
+          {gameMode === 'team' ? (
+            <>
+              <label>
+                Number of teams (2-5):{' '}
+                <input
+                  type="number"
+                  min="2"
+                  max="5"
+                  value={teamCount}
+                  onChange={(e) => setTeamCount(Number(e.target.value))}
+                  style={{ width: '4rem' }}
+                  disabled={questionSelectionLocked}
+                />
+              </label>
+              <label>
+                Host team #:{' '}
+                <input
+                  type="number"
+                  min="1"
+                  max={teamCount || 5}
+                  value={selectedTeamId}
+                  onChange={(e) => setSelectedTeamId(Number(e.target.value))}
+                  style={{ width: '3.5rem' }}
+                  disabled={questionSelectionLocked}
+                />
+              </label>
+              <p style={{ margin: 0, color: '#555' }}>
+                Team games allow up to 10 players, at least 2 per team.
+              </p>
+            </>
+          ) : null}
+        </div>
 
         <div style={{ marginBottom: '0.75rem' }}>
           <p style={{ marginBottom: '0.5rem' }}>Questions:</p>
@@ -133,7 +138,7 @@ function HostLobby({
                 padding: '0.5rem 0.75rem',
                 borderRadius: '0.4rem',
                 border: '1px solid #4a90e2',
-                background: questionPreset === 'short' ? '#4a90e2' : 'transparent',
+                background: questionPreset === 'short' ? '#91e24b' : 'transparent',
                 color: questionPreset === 'short' ? '#fff' : '#000'
               }}
               disabled={questionSelectionLocked}
@@ -147,7 +152,7 @@ function HostLobby({
                 padding: '0.5rem 0.75rem',
                 borderRadius: '0.4rem',
                 border: '1px solid #4a90e2',
-                background: questionPreset === 'normal' ? '#4a90e2' : 'transparent',
+                background: questionPreset === 'normal' ? '#e29b4b' : 'transparent',
                 color: questionPreset === 'normal' ? '#fff' : '#000'
               }}
               disabled={questionSelectionLocked}
@@ -161,7 +166,7 @@ function HostLobby({
                 padding: '0.5rem 0.75rem',
                 borderRadius: '0.4rem',
                 border: '1px solid #4a90e2',
-                background: questionPreset === 'long' ? '#4a90e2' : 'transparent',
+                background: questionPreset === 'long' ? '#e2694b' : 'transparent',
                 color: questionPreset === 'long' ? '#fff' : '#000'
               }}
               disabled={questionSelectionLocked}
