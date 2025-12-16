@@ -18,8 +18,8 @@ export function getSocket() {
   if (!socket) {
     const url =
       import.meta.env.VITE_WS_BASE ||
-      (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : null) ||
-      'https://unsecretarial-maribeth-leerier.ngrok-free.dev';
+      'https://unsecretarial-maribeth-leerier.ngrok-free.dev' ||
+      (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : null);
     socket = io(url, {
       autoConnect: false,
       transports: ['websocket', 'polling']

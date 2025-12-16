@@ -6,11 +6,11 @@ const inferredOrigin =
   typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin
     : null;
-// Prefer explicit env; fallback to current host; final fallback is your current tunnel (HTTPS).
+// Prefer explicit env; fallback to your tunnel; last resort: current host.
 const apiBase =
   import.meta.env.VITE_API_BASE ||
-  (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : null) ||
-  'https://unsecretarial-maribeth-leerier.ngrok-free.dev';
+  'https://unsecretarial-maribeth-leerier.ngrok-free.dev' ||
+  (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : null);
 
 export function useGameLogic() {
   const socket = getSocket();
