@@ -2,6 +2,9 @@ import HostLobby from './components/HostLobby';
 import PlayerLobby from './components/PlayerLobby';
 import GameView from './components/GameView';
 import { useGameLogic } from './hooks/useGameLogic';
+import NGSLogo from './components/NGSLogo.png';
+import './App.css';
+import { useState } from 'react';
 
 function App() {
   const {
@@ -53,12 +56,34 @@ function App() {
     handleAnswerClick,
     handleMovePlayerTeam,
     handleSwitchView,
-    handleLeaveGame
+    handleLeaveGame,
   } = useGameLogic();
 
+  
+  const [spinning, setSpinning] = useState(false);
+
+  const handleLogoClick = () => {
+    // trigger a one-shot spin by toggling the `spin` class
+    setSpinning(true);
+  };
+
+  const handleLogoAnimationEnd = () => {
+    setSpinning(false);
+  };
+  
   return (
     <div style={{ padding: '1.5rem', fontFamily: 'system-ui' }}>
-      <h1>Network Game Show – Real-Time Core</h1>
+      <h1>
+        <img
+          src={NGSLogo}
+          alt="NGS Logo"
+          className={"logo" + (spinning ? " spin" : "")}
+          onClick={handleLogoClick}
+          onAnimationEnd={handleLogoAnimationEnd}
+        />
+        Network Game Show – Real-Time Core
+      </h1>
+      
 
       <div style={{ marginBottom: '1rem' }}>
         <button
