@@ -38,6 +38,7 @@ Thumbs.db
 *.swp
 
 # --- Client + Server dependency folders ---
+node_modules/
 client/node_modules/
 server/node_modules/
 
