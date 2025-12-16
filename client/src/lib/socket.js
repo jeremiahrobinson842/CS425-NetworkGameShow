@@ -11,7 +11,8 @@ let socket;
  */
 export function getSocket() {
   if (!socket) {
-    socket = io('http://localhost:4000', {
+    const url = import.meta.env.VITE_WS_BASE || 'http://localhost:4000';
+    socket = io(url, {
       autoConnect: false,
       transports: ['websocket', 'polling']
     });

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { getSocket } from '../lib/socket';
 
 const presetQuestionCounts = { short: 5, normal: 10, long: 20 };
+const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
 
 export function useGameLogic() {
   const socket = getSocket();
@@ -306,7 +307,7 @@ export function useGameLogic() {
     };
 
     try {
-      const res = await fetch('http://localhost:4000/api/games/create', {
+      const res = await fetch(`${apiBase}/api/games/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
