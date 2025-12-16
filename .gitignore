@@ -11,9 +11,15 @@ pnpm-debug.log*
 
 # --- Environment Files ---
 .env
+.env.*
 .env.local
 .env.development
 .env.production
+server/.env
+server/.env.*
+server/.env.local
+server/.env.development
+server/.env.production
 
 # --- Logs ---
 logs
