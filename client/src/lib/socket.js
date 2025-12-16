@@ -19,7 +19,7 @@ export function getSocket() {
     const url =
       import.meta.env.VITE_WS_BASE ||
       (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : null) ||
-      'https://unsecretarial-maribeth-leerier.ngrok-free.dev';
+      'http://localhost:5174';
     socket = io(url, {
       autoConnect: false,
       transports: ['websocket', 'polling']
