@@ -104,7 +104,7 @@ You should see:
 SELECT COUNT(*) FROM questions;
  count 
 -------
-   25
+   50
 ```
 
 ### Frontend Setup (client/)

@@ -10,12 +10,17 @@ function App() {
   const [gameId, setGameId] = useState(null); // currently not displayed, but fine to keep
   const [username, setUsername] = useState('');
   const [isHost, setIsHost] = useState(false);
+  const [gameMode, setGameMode] = useState('classic'); // 'classic' or 'team'
+  const [teamCount, setTeamCount] = useState(2);
+  const [selectedTeamId, setSelectedTeamId] = useState(1);
   const [players, setPlayers] = useState([]);
+  const [teams, setTeams] = useState([]);
   const presetQuestionCounts = {
     short: 5,
     normal: 10,
     long: 20
   };
+  const [draggingPlayer, setDraggingPlayer] = useState(null);
   const [questionPreset, setQuestionPreset] = useState('normal');
   const [questionCount, setQuestionCount] = useState(presetQuestionCounts.normal);
   const [customQuestionCount, setCustomQuestionCount] = useState('');
@@ -66,11 +71,25 @@ function App() {
     function onPlayerJoined(payload) {
       console.log('player_joined', payload);
       setPlayers(payload.players || []);
+      setTeams(payload.teams || []);
+      if (payload.mode) setGameMode(payload.mode);
+      if (payload.teamCount != null) setTeamCount(Number(payload.teamCount));
+      const me = (payload.players || []).find((p) => p.username === username);
+      if (me && me.teamId) {
+        setSelectedTeamId(me.teamId);
+      }
     }
 
     function onPlayerList(payload) {
       console.log('player_list', payload);
       setPlayers(payload.players || []);
+      setTeams(payload.teams || []);
+      if (payload.mode) setGameMode(payload.mode);
+      if (payload.teamCount != null) setTeamCount(Number(payload.teamCount));
+      const me = (payload.players || []).find((p) => p.username === username);
+      if (me && me.teamId) {
+        setSelectedTeamId(me.teamId);
+      }
     }
 
     function onGameStarting(payload) {
@@ -317,6 +336,21 @@ function App() {
       return;
     }
 
+    if (gameMode === 'team') {
+      if (!Number.isInteger(teamCount) || teamCount < 2 || teamCount > 5) {
+        alert('Team games require between 2 and 5 teams.');
+        return;
+      }
+      if (
+        !Number.isInteger(selectedTeamId) ||
+        selectedTeamId < 1 ||
+        selectedTeamId > teamCount
+      ) {
+        alert(`Select a valid team number between 1 and ${teamCount}.`);
+        return;
+      }
+    }
+
     const chosenCountRaw =
       customQuestionCount !== '' ? Number(customQuestionCount) : Number(questionCount);
     const parsedQuestionCount = chosenCountRaw;
@@ -330,7 +364,7 @@ function App() {
     }
 
     const body = {
-      mode: 'classic',
+      mode: gameMode,
       questionCount: parsedQuestionCount,
       timePerQuestion: 20
     };
@@ -357,16 +391,32 @@ function App() {
       setGameCode(data.gameCode);
       setGameId(data.gameId);
       setIsHost(true);
+      setGameMode(gameMode);
+
+      const joinPayload = {
+        gameCode: data.gameCode,
+        username,
+        isHost: true
+      };
+
+      if (gameMode === 'team') {
+        joinPayload.teamId = selectedTeamId;
+        joinPayload.teamCount = teamCount;
+      }
 
       socket.emit(
         'join_game',
-        { gameCode: data.gameCode, username, isHost: true },
+        joinPayload,
         (ack) => {
           console.log('join_game ack (host):', ack);
           if (!ack?.ok) {
             alert('Failed to join game as host: ' + (ack && ack.error));
           } else {
             setPlayers(ack.players || []);
+            setTeams(ack.teams || []);
+            if (ack.teamCount != null) setTeamCount(Number(ack.teamCount));
+            if (ack.mode) setGameMode(ack.mode);
+            if (joinPayload.teamId) setSelectedTeamId(joinPayload.teamId);
           }
         }
       );
@@ -390,9 +440,30 @@ function App() {
 
     setIsHost(false);
 
+    if (gameMode === 'team') {
+      if (
+        !Number.isInteger(selectedTeamId) ||
+        selectedTeamId < 1 ||
+        selectedTeamId > teamCount
+      ) {
+        alert(`Select a valid team number between 1 and ${teamCount} before joining.`);
+        return;
+      }
+    }
+
+    const joinPayload = {
+      gameCode,
+      username,
+      isHost: false
+    };
+
+    if (gameMode === 'team') {
+      joinPayload.teamId = selectedTeamId;
+    }
+
     socket.emit(
       'join_game',
-      { gameCode, username, isHost: false },
+      joinPayload,
       (ack) => {
         console.log('join_game ack (player):', ack);
         if (!ack.ok) {
@@ -400,6 +471,24 @@ function App() {
         } else {
           setGameId(ack.gameId);
           setPlayers(ack.players || []);
+          setTeams(ack.teams || []);
+          if (ack.teamCount != null) setTeamCount(Number(ack.teamCount));
+          if (ack.mode) setGameMode(ack.mode);
+          if (joinPayload.teamId) setSelectedTeamId(joinPayload.teamId);
+        }
+      }
+    );
+  }
+
+  function handleMovePlayerTeam(usernameToMove, targetTeamId) {
+    if (!isHost || !isTeamMode) return;
+    if (!gameCode) return;
+    socket.emit(
+      'move_player_team',
+      { gameCode, username: usernameToMove, targetTeamId },
+      (ack) => {
+        if (!ack?.ok) {
+          alert(ack?.error || 'Failed to move player.');
         }
       }
     );
@@ -460,18 +549,41 @@ function App() {
   }
 
   // Basic render helpers
-  const playerCount = players.length;
-  const canStart = isHost && playerCount >= 2;
+  const isTeamMode = gameMode === 'team';
+  const activePlayerCount = players.length;
+  const teamReadiness = (() => {
+    if (!isTeamMode) return { ready: true, message: null };
+    if (!Number.isInteger(teamCount) || teamCount < 2 || teamCount > 5) {
+      return { ready: false, message: 'Set between 2 and 5 teams.' };
+    }
+    if (!teams || teams.length !== teamCount) {
+      return { ready: false, message: `Waiting for ${teamCount} teams to be set.` };
+    }
+    const memberCounts = teams.map((t) => (t.members ? t.members.length : 0));
+    if (memberCounts.some((c) => c < 2)) {
+      return { ready: false, message: 'Each team must have at least 2 players.' };
+    }
+    if (activePlayerCount > 10) {
+      return { ready: false, message: 'Maximum of 10 players allowed in team mode.' };
+    }
+    return { ready: true, message: null };
+  })();
+  const myTeamId =
+    players.find((p) => p.username === username)?.teamId || null;
+  const canStart = isHost && (isTeamMode ? teamReadiness.ready : activePlayerCount >= 2);
   const totalQuestions = finalTotalQuestions; // convenience alias for JSX
-  const lockHostView = isHost && Boolean(gameCode) && playerCount > 1;
+  const lockHostView = isHost && Boolean(gameCode) && activePlayerCount > 1;
   const lockPlayerView = !isHost && Boolean(gameCode);
-  const disableCreateGame = isHost && Boolean(gameCode) && playerCount >= 2 && !gameEnded;
+  const disableCreateGame =
+    isHost && Boolean(gameCode) && activePlayerCount >= 2 && !gameEnded;
   const gamePhaseActive =
     countdown !== null || question !== null || lastQuestionSummary !== null || gameEnded;
+  const allowTeamDrag = isHost && isTeamMode && !gamePhaseActive;
   const formattedFinalLeaderboard = (() => {
     if (!finalRankings || finalRankings.length === 0) return [];
     const rows = finalRankings.map((entry) => {
-      const playerLabel = `${entry.username}${entry.disconnected ? ' (disconnected)' : ''}`;
+      const displayName = entry.teamName || entry.username;
+      const playerLabel = `${displayName}${entry.disconnected ? ' (disconnected)' : ''}`;
       const scoreLabel = `${entry.totalScore} pts`;
       const correctLabel =
         typeof entry.correctAnswers === 'number'
@@ -561,6 +673,10 @@ function App() {
     setGameId(null);
     setPlayers([]);
     setIsHost(false);
+    setGameMode('classic');
+    setTeamCount(2);
+    setSelectedTeamId(1);
+    setTeams([]);
     setQuestion(null);
     setCountdown(null);
     setTimeRemaining(null);
@@ -600,6 +716,105 @@ function App() {
       gameEndTimeoutRef.current = null;
     }
   }
+
+  const placeholderTeams =
+    isTeamMode &&
+    Number.isInteger(teamCount) &&
+    teamCount >= 2 &&
+    teamCount <= 5
+      ? Array.from({ length: teamCount }, (_, idx) => ({
+          teamId: idx + 1,
+          teamName: `Team ${idx + 1}`,
+          members: []
+        }))
+      : [];
+
+  const lobbyTeams =
+    isTeamMode && teams && teams.length > 0 ? teams : placeholderTeams;
+
+  function handleDragStartPlayer(e, member) {
+    if (!allowTeamDrag) return;
+    e.dataTransfer.setData('text/plain', member.username);
+    setDraggingPlayer(member.username);
+  }
+
+  function handleDragEndPlayer() {
+    setDraggingPlayer(null);
+  }
+
+  function handleTeamDrop(e, teamId) {
+    if (!allowTeamDrag) return;
+    e.preventDefault();
+    const usernameToMove = e.dataTransfer.getData('text/plain');
+    if (!usernameToMove) return;
+    handleMovePlayerTeam(usernameToMove, teamId);
+    setDraggingPlayer(null);
+  }
+
+  function handleTeamDragOver(e) {
+    if (!allowTeamDrag) return;
+    e.preventDefault();
+  }
+
+  const lobbyDisplay = isTeamMode ? (
+    <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+      {lobbyTeams.map((team) => {
+        const memberCount = team.members ? team.members.length : 0;
+        const dropActive = allowTeamDrag && Boolean(draggingPlayer);
+        return (
+          <div
+            key={team.teamId || team.teamName}
+            onDragOver={handleTeamDragOver}
+            onDrop={(e) => handleTeamDrop(e, team.teamId)}
+            style={{
+              border: '1px dashed ' + (dropActive ? '#4a90e2' : '#ccc'),
+              borderRadius: '0.5rem',
+              padding: '0.5rem 0.75rem',
+              minWidth: '170px',
+              background: dropActive ? '#f7fbff' : 'transparent'
+            }}
+          >
+            <div style={{ fontWeight: 600 }}>
+              {team.teamName || `Team ${team.teamId}`}
+            </div>
+            <div style={{ fontSize: '0.9rem', color: '#555' }}>
+              {memberCount > 0
+                ? `${memberCount} player${memberCount === 1 ? '' : 's'}`
+                : 'No players yet'}
+            </div>
+            {allowTeamDrag && (
+              <div style={{ fontSize: '0.85rem', color: '#666' }}>
+                Drag players here to move them
+              </div>
+            )}
+            <ul style={{ marginTop: '0.4rem' }}>
+              {(team.members || []).map((m) => (
+                <li
+                  key={m.username}
+                  draggable={allowTeamDrag}
+                  onDragStart={(e) => handleDragStartPlayer(e, m)}
+                  onDragEnd={handleDragEndPlayer}
+                  style={{
+                    cursor: allowTeamDrag ? 'grab' : 'default'
+                  }}
+                >
+                  {m.username} {m.isHost ? '(Host)' : ''}
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  ) : (
+    <ul>
+      {players.map((p) => (
+        <li key={p.username}>
+          {p.username} {p.isHost ? '(Host)' : ''}
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
     <div style={{ padding: '1.5rem', fontFamily: 'system-ui' }}>
@@ -650,68 +865,136 @@ function App() {
               </label>
           </div>
           <form onSubmit={handleCreateGame}>
-          <div style={{ marginBottom: '0.75rem' }}>
-            <p style={{ marginBottom: '0.5rem' }}>Questions:</p>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button
-                type="button"
-                onClick={() => handleSelectPreset('short')}
-                style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: '0.4rem',
-                  border: '1px solid #4a90e2',
-                  background:
-                    questionPreset === 'short' ? '#4a90e2' : 'transparent',
-                  color: questionPreset === 'short' ? '#fff' : '#000'
-                }}
-                disabled={questionSelectionLocked}
-              >
-                Short (5)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSelectPreset('normal')}
-                style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: '0.4rem',
-                  border: '1px solid #4a90e2',
-                  background:
-                    questionPreset === 'normal' ? '#4a90e2' : 'transparent',
-                  color: questionPreset === 'normal' ? '#fff' : '#000'
-                }}
-                disabled={questionSelectionLocked}
-              >
-                Normal (10)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSelectPreset('long')}
-                style={{
-                  padding: '0.5rem 0.75rem',
-                  borderRadius: '0.4rem',
-                  border: '1px solid #4a90e2',
-                  background:
-                    questionPreset === 'long' ? '#4a90e2' : 'transparent',
-                  color: questionPreset === 'long' ? '#fff' : '#000'
-                }}
-                disabled={questionSelectionLocked}
-              >
-                Long (20)
-              </button>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                Custom:
+            <div style={{ marginBottom: '0.75rem' }}>
+              <p style={{ marginBottom: '0.5rem' }}>Mode:</p>
+              <label style={{ marginRight: '0.75rem' }}>
                 <input
-                  type="number"
-                  min="1"
-                  max="50"
-                  value={customQuestionCount}
-                  onChange={handleCustomQuestionCountChange}
-                  placeholder="1-50"
-                  style={{ width: '4.5rem' }}
+                  type="radio"
+                  name="mode"
+                  value="classic"
+                  checked={gameMode === 'classic'}
+                  onChange={() => setGameMode('classic')}
                   disabled={questionSelectionLocked}
-                />
+                />{' '}
+                Classic (individual)
+              </label>
+              <label>
+                <input
+                  type="radio"
+                  name="mode"
+                  value="team"
+                  checked={gameMode === 'team'}
+                  onChange={() => setGameMode('team')}
+                  disabled={questionSelectionLocked}
+                />{' '}
+                Team
               </label>
             </div>
+
+            {gameMode === 'team' && (
+              <div
+                style={{
+                  marginBottom: '0.75rem',
+                  display: 'flex',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                  alignItems: 'center'
+                }}
+              >
+                <label>
+                  Number of teams (2-5):{' '}
+                  <input
+                    type="number"
+                    min="2"
+                    max="5"
+                    value={teamCount}
+                    onChange={(e) => setTeamCount(Number(e.target.value))}
+                    style={{ width: '4rem' }}
+                    disabled={questionSelectionLocked}
+                  />
+                </label>
+                <label>
+                  Host team #:{' '}
+                  <input
+                    type="number"
+                    min="1"
+                    max={teamCount || 5}
+                    value={selectedTeamId}
+                    onChange={(e) => setSelectedTeamId(Number(e.target.value))}
+                    style={{ width: '3.5rem' }}
+                    disabled={questionSelectionLocked}
+                  />
+                </label>
+                <p style={{ margin: 0, color: '#555' }}>
+                  Team games allow up to 10 players, at least 2 per team.
+                </p>
+              </div>
+            )}
+
+            <div style={{ marginBottom: '0.75rem' }}>
+              <p style={{ marginBottom: '0.5rem' }}>Questions:</p>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPreset('short')}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '0.4rem',
+                    border: '1px solid #4a90e2',
+                    background:
+                      questionPreset === 'short' ? '#4a90e2' : 'transparent',
+                    color: questionPreset === 'short' ? '#fff' : '#000'
+                  }}
+                  disabled={questionSelectionLocked}
+                >
+                  Short (5)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPreset('normal')}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '0.4rem',
+                    border: '1px solid #4a90e2',
+                    background:
+                      questionPreset === 'normal' ? '#4a90e2' : 'transparent',
+                    color: questionPreset === 'normal' ? '#fff' : '#000'
+                  }}
+                  disabled={questionSelectionLocked}
+                >
+                  Normal (10)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectPreset('long')}
+                  style={{
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '0.4rem',
+                    border: '1px solid #4a90e2',
+                    background:
+                      questionPreset === 'long' ? '#4a90e2' : 'transparent',
+                    color: questionPreset === 'long' ? '#fff' : '#000'
+                  }}
+                  disabled={questionSelectionLocked}
+                >
+                  Long (20)
+                </button>
+                <label
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+                >
+                  Custom:
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={customQuestionCount}
+                    onChange={handleCustomQuestionCountChange}
+                    placeholder="1-50"
+                    style={{ width: '4.5rem' }}
+                    disabled={questionSelectionLocked}
+                  />
+                </label>
+              </div>
               <p style={{ marginTop: '0.35rem' }}>
                 Selected: <strong>{questionCount}</strong> questions
               </p>
@@ -727,19 +1010,23 @@ function App() {
             Game Code:{' '}
             <strong>{gameCode || 'Create a game to get a code'}</strong>
           </p>
-          <ul>
-            {players.map((p) => (
-              <li key={p.username}>
-                {p.username} {p.isHost ? '(Host)' : ''}
-              </li>
-            ))}
-          </ul>
+          <p>
+            Mode:{' '}
+            <strong>
+              {isTeamMode
+                ? `Team (${teamCount || '?'} teams, max 10 players)`
+                : 'Classic'}
+            </strong>
+          </p>
+          {lobbyDisplay}
           <button onClick={handleStartGame} disabled={!canStart}>
-            Start Game (requires &gt;= 2 players)
+            Start Game
           </button>
           {!canStart && isHost && (
             <p style={{ color: '#888' }}>
-              Waiting for at least 2 players to join before starting.
+              {isTeamMode
+                ? teamReadiness.message || 'Waiting for teams to be ready.'
+                : 'Waiting for at least 2 players to join before starting.'}
             </p>
           )}
         </section>
@@ -788,6 +1075,49 @@ function App() {
                 />
               </div>
 
+              <div style={{ marginBottom: '0.75rem' }}>
+                <p style={{ marginBottom: '0.35rem' }}>Mode:</p>
+                <label style={{ marginRight: '0.75rem' }}>
+                  <input
+                    type="radio"
+                    name="player-mode"
+                    value="classic"
+                    checked={gameMode === 'classic'}
+                    onChange={() => setGameMode('classic')}
+                  />{' '}
+                  Classic
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="player-mode"
+                    value="team"
+                    checked={gameMode === 'team'}
+                    onChange={() => setGameMode('team')}
+                  />{' '}
+                  Team
+                </label>
+              </div>
+
+              {gameMode === 'team' && (
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <label style={{ display: 'block', marginBottom: '0.25rem' }}>
+                    Team number (ask host):
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={teamCount || 5}
+                    value={selectedTeamId}
+                    onChange={(e) => setSelectedTeamId(Number(e.target.value))}
+                    style={{ width: '4rem' }}
+                  />
+                  <p style={{ margin: '0.25rem 0', color: '#555' }}>
+                    Team games require 2-5 teams and up to 10 total players.
+                  </p>
+                </div>
+              )}
+
               <button type="submit" style={{ padding: '0.4rem 0.75rem' }}>
                 Join Game
               </button>
@@ -798,13 +1128,15 @@ function App() {
           <p>
             Game Code: <strong>{gameCode || '(none)'}</strong>
           </p>
-          <ul>
-            {players.map((p) => (
-              <li key={p.username}>
-                {p.username} {p.isHost ? '(Host)' : ''}
-              </li>
-            ))}
-          </ul>
+          <p>
+            Mode:{' '}
+            <strong>
+              {isTeamMode
+                ? `Team (${teamCount || '?'} teams, max 10 players)`
+                : 'Classic'}
+            </strong>
+          </p>
+          {lobbyDisplay}
           <p>Waiting for host to start...</p>
         </section>
       ))}
@@ -913,13 +1245,17 @@ function App() {
             <ol>
               {leaderboard.map((entry) => (
                 <li
-                  key={entry.username}
+                  key={entry.teamId || entry.username}
                   style={{
                     fontWeight:
-                      entry.username === username ? 'bold' : 'normal'
+                      (isTeamMode
+                        ? entry.teamId && entry.teamId === myTeamId
+                        : entry.username === username)
+                        ? 'bold'
+                        : 'normal'
                   }}
                 >
-                  #{entry.rank} – {entry.username} ({entry.totalScore} pts)
+                  #{entry.rank} - {entry.teamName || entry.username} ({entry.totalScore} pts)
                   {entry.disconnected && ' (disconnected)'}
                 </li>
               ))}

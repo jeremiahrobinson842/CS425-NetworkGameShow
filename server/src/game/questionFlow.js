@@ -79,7 +79,8 @@ async function endGame(io, gameCode, totalQuestionsActuallyPlayed, allowedQuesti
   io.to(gameCode).emit('game_ended', {
     gameCode,
     totalQuestions: totalQuestionsActuallyPlayed,
-    finalRankings: leaderboard
+    finalRankings: leaderboard,
+    mode: room.mode || 'classic'
   });
 }
 
@@ -134,7 +135,8 @@ async function endQuestion(io, gameCode, options = {}) {
     questionId: q.id,
     correctAnswer: q.correct_option,
     explanation: q.explanation,
-    leaderboard
+    leaderboard,
+    mode: room.mode || 'classic'
   });
 
   if (forceGameEnd) {

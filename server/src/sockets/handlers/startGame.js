@@ -37,7 +37,7 @@ async function handleStartGame(io, socket, payload, ack) {
       return ack && ack({ ok: false, error: msg });
     }
 
-    const players = buildPlayerList(room.players);
+    const players = buildPlayerList(room.players, room);
     if (players.length < 2) {
       const msg = 'At least 2 players are required to start the game';
       logger.warn(msg, {
@@ -45,6 +45,32 @@ async function handleStartGame(io, socket, payload, ack) {
         playerCount: players.length
       });
       return ack && ack({ ok: false, error: msg });
+    }
+
+    if (players.length > 10) {
+      const msg = 'Cannot start: maximum of 10 players allowed.';
+      logger.warn(msg, { gameCode: normalizedCode, playerCount: players.length });
+      return ack && ack({ ok: false, error: msg });
+    }
+
+    if (room.mode === 'team') {
+      if (!room.teamCount || room.teamCount < 2 || room.teamCount > 5) {
+        const msg = 'Team games require 2-5 teams. Please set team count before starting.';
+        logger.warn(msg, { gameCode: normalizedCode, teamCount: room.teamCount });
+        return ack && ack({ ok: false, error: msg });
+      }
+
+      const activePlayers = Array.from(room.players.values()).filter((p) => !p.disconnected);
+      const teamSizes = Array.from({ length: room.teamCount }, (_, idx) => {
+        const teamId = idx + 1;
+        return activePlayers.filter((p) => p.teamId === teamId).length;
+      });
+
+      if (teamSizes.some((size) => size < 2)) {
+        const msg = 'Each team must have at least 2 players to start.';
+        logger.warn(msg, { gameCode: normalizedCode, teamSizes });
+        return ack && ack({ ok: false, error: msg });
+      }
     }
 
     // Reset room state for a new game run

@@ -30,6 +30,12 @@ router.post('/create', async (req, res) => {
     const parsedTimePerQuestion = Number(timePerQuestion);
     const gameMode = mode || 'classic';
 
+    if (gameMode !== 'classic' && gameMode !== 'team') {
+      return res.status(400).json({
+        error: "mode must be either 'classic' or 'team'."
+      });
+    }
+
     if (
       !Number.isInteger(parsedQuestionCount) ||
       parsedQuestionCount < 1 ||
