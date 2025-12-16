@@ -1,6 +1,11 @@
 // client/src/lib/socket.js
 import { io } from 'socket.io-client';
 
+const inferredOrigin =
+  typeof window !== 'undefined' && window.location?.origin
+    ? window.location.origin
+    : null;
+
 let socket;
 
 /**
@@ -11,7 +16,9 @@ let socket;
  */
 export function getSocket() {
   if (!socket) {
-    const url = import.meta.env.VITE_WS_BASE || 'http://localhost:4000';
+    const url =
+      import.meta.env.VITE_WS_BASE ||
+      (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : 'http://localhost:4000');
     socket = io(url, {
       autoConnect: false,
       transports: ['websocket', 'polling']

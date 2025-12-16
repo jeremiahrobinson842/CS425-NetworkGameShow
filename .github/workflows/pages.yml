@@ -20,6 +20,9 @@ jobs:
     env:
       # Override with repo/org variable VITE_BASE_PATH for custom domains (e.g., "/")
       VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH != '' && vars.VITE_BASE_PATH || '/CS425-NetworkGameShow/' }}
+      # Backend endpoints for API + WebSocket (must be HTTPS in Pages)
+      VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+      VITE_WS_BASE: ${{ vars.VITE_WS_BASE }}
     defaults:
       run:
         working-directory: client

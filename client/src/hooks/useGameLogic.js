@@ -2,7 +2,13 @@ import { useEffect, useRef, useState, useMemo } from 'react';
 import { getSocket } from '../lib/socket';
 
 const presetQuestionCounts = { short: 5, normal: 10, long: 20 };
-const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:4000';
+const inferredOrigin =
+  typeof window !== 'undefined' && window.location?.origin
+    ? window.location.origin
+    : null;
+const apiBase =
+  import.meta.env.VITE_API_BASE ||
+  (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : 'http://localhost:4000');
 
 export function useGameLogic() {
   const socket = getSocket();
