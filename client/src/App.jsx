@@ -2,6 +2,8 @@ import HostLobby from './components/HostLobby';
 import PlayerLobby from './components/PlayerLobby';
 import GameView from './components/GameView';
 import { useGameLogic } from './hooks/useGameLogic';
+import NGSLogo from './components/NGSLogo.png';
+import './App.css';
 
 function App() {
   const {
@@ -52,12 +54,16 @@ function App() {
     handleAnswerClick,
     handleMovePlayerTeam,
     handleSwitchView,
-    handleLeaveGame
+    handleLeaveGame,
   } = useGameLogic();
 
   return (
     <div style={{ padding: '1.5rem', fontFamily: 'system-ui' }}>
-      <h1>Network Game Show – Real-Time Core</h1>
+      <h1>
+        <img src={NGSLogo} alt="NGS Logo" className="logo" />
+        Network Game Show – Real-Time Core
+      </h1>
+      
 
       <div style={{ marginBottom: '1rem' }}>
         <button

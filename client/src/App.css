@@ -1,13 +1,6 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-}
 
 .logo {
-  height: 6em;
-  padding: 1.5em;
+  height: 2em;
   will-change: filter;
   transition: filter 300ms;
 }
@@ -30,6 +23,10 @@
 @media (prefers-reduced-motion: no-preference) {
   a:nth-of-type(2) .logo {
     animation: logo-spin infinite 20s linear;
+  }
+  /* run the spin once when the `spin` class is added (e.g. on click) */
+  .logo.spin {
+    animation: logo-spin 2s linear 1;
   }
 }
 
