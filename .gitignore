@@ -31,6 +31,8 @@ dist/
 build/
 tmp/
 temp/
+artillery/report.json
+artillery/report.html
 
 # --- Vite Specific ---
 .vite

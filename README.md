@@ -255,14 +255,14 @@ git push origin --delete <branch-name>
 
 - Install Artillery locally if needed: `npm install -g artillery@latest` (or run with `npx artillery` to avoid a global install).
 - Ensure the backend is running and reachable (defaults to http://localhost:5174; override with `ARTILLERY_TARGET`).
-- Run the socket.io join test with ~5 concurrent players for 45s and capture response times:
+- Run the socket.io join test (defaults: 5 joiners sustained for 45s):
 ```
-ARTILLERY_TARGET=http://localhost:4000 npx artillery run artillery/artillery-test.yml --output artillery/report.json
+npm run load:socket
 ```
-- Reuse an existing lobby instead of auto-creating one by setting `GAME_CODE=<your code>` (otherwise the processor will call `POST /api/games/create`).
+  - Override defaults with env vars: `ARTILLERY_TARGET`, `ARTILLERY_DURATION`, `ARTILLERY_ARRIVAL_RATE`, `GAME_CODE` (to reuse an existing lobby), `GAME_MODE`, `QUESTION_COUNT`, `TIME_PER_QUESTION`.
 - View the latency/response time summary from the CLI output or render the JSON to HTML:
 ```
-npx artillery report artillery/report.json -o artillery/report.html
+npm run load:report
 ```
 
-The scenario measures the `join_game` ack latency while keeping at least five concurrent joiners during the phase.
+The scenario measures the `join_game` ack latency while keeping the desired concurrent joiners during the phase; if no `GAME_CODE` is supplied, the processor will create a lobby via `POST /api/games/create`.

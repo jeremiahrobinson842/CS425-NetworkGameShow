@@ -1,4 +1,8 @@
 {
+  "scripts": {
+    "load:socket": "npx artillery run artillery/artillery-test.yml --output artillery/report.json",
+    "load:report": "npx artillery report artillery/report.json -o artillery/report.html"
+  },
   "devDependencies": {
     "artillery": "^2.0.27"
   }

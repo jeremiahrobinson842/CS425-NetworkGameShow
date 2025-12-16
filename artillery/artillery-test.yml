@@ -1,8 +1,9 @@
 config:
-  target: "http://localhost:5174"
+  # Allow overriding target/duration/rate via env: ARTILLERY_TARGET, ARTILLERY_DURATION, ARTILLERY_ARRIVAL_RATE
+  target: "{{ $processEnvironment.ARTILLERY_TARGET || 'http://localhost:5174' }}"
   phases:
-    - duration: 45
-      arrivalRate: 5
+    - duration: "{{ $processEnvironment.ARTILLERY_DURATION || 45 }}"
+      arrivalRate: "{{ $processEnvironment.ARTILLERY_ARRIVAL_RATE || 5 }}"
       name: "Sustain at least 5 concurrent joiners"
   engines:
     socketio:
