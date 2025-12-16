@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Override with repo/org variable VITE_BASE_PATH for custom domains (e.g., "/")
-      VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH != '' && vars.VITE_BASE_PATH || '/NetworkGameShow/' }}
+      VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH != '' && vars.VITE_BASE_PATH || '/CS425-NetworkGameShow/' }}
     defaults:
       run:
         working-directory: client
