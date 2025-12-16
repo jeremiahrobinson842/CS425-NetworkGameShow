@@ -22,7 +22,9 @@ function PlayerLobby({
         border: '1px solid #7ed321',
         padding: '1rem',
         borderRadius: '0.5rem',
-        marginBottom: '1rem'
+        marginBottom: '1rem',
+        background: gameMode === 'team' ? '#ffe8d6' : '#e8f5e8',
+        transition: 'background 300ms ease'
       }}
     >
       <h2>Player Join</h2>
