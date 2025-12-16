@@ -6,11 +6,11 @@ const inferredOrigin =
   typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin
     : null;
-// Prefer explicit env; fallback to current host; final fallback is local dev backend on 5174.
+// Prefer explicit env; fallback to current host; final fallback is your current tunnel (HTTPS).
 const apiBase =
   import.meta.env.VITE_API_BASE ||
   (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : null) ||
-  'http://localhost:5174';
+  'https://unsecretarial-maribeth-leerier.ngrok-free.dev';
 
 export function useGameLogic() {
   const socket = getSocket();
