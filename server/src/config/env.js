@@ -31,7 +31,7 @@ if (result.error) {
  * Port the HTTP server listens on.
  * @type {number}
  */
-const PORT = Number(process.env.PORT) || 4000;
+const PORT = Number(process.env.PORT) || 5174;
 
 /**
  * PostgreSQL connection string.
