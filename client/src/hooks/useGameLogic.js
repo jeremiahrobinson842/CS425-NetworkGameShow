@@ -6,9 +6,11 @@ const inferredOrigin =
   typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin
     : null;
+// Prefer explicit env; fallback to current host; final fallback is your ngrok URL for now.
 const apiBase =
   import.meta.env.VITE_API_BASE ||
-  (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : 'http://localhost:4000');
+  (inferredOrigin && inferredOrigin.startsWith('http') ? inferredOrigin : null) ||
+  'https://unsecretarial-maribeth-leerier.ngrok-free.dev';
 
 export function useGameLogic() {
   const socket = getSocket();
