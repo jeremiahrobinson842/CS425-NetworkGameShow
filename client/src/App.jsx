@@ -44,6 +44,7 @@ function App() {
     allowTeamDrag,
     teamReadiness,
     questionNumberLabel,
+    latencyMs,
     handleSelectPreset,
     handleCustomQuestionCountChange,
     handleCreateGame,
@@ -101,6 +102,7 @@ function App() {
             lobbyTeams={lobbyTeams}
             players={players}
             onMovePlayerTeam={handleMovePlayerTeam}
+            latencyMs={latencyMs}
           />
         ) : (
           <PlayerLobby
@@ -118,6 +120,7 @@ function App() {
             isTeamMode={isTeamMode}
             lobbyTeams={lobbyTeams}
             players={players}
+            latencyMs={latencyMs}
           />
         ))}
 
@@ -139,6 +142,7 @@ function App() {
           username={username}
           formattedFinalLeaderboard={formattedFinalLeaderboard}
           totalQuestions={totalQuestions}
+          latencyMs={latencyMs}
         />
       )}
     </div>

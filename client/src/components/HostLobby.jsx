@@ -26,7 +26,8 @@ function HostLobby({
   allowTeamDrag,
   lobbyTeams,
   players,
-  onMovePlayerTeam
+  onMovePlayerTeam,
+  latencyMs
 }) {
   return (
     <section
@@ -38,6 +39,9 @@ function HostLobby({
       }}
     >
       <h2>Host Dashboard</h2>
+      <p style={{ marginTop: '0.25rem', marginBottom: '0.75rem' }}>
+        Latency: <strong>{latencyMs != null ? `${latencyMs} ms` : '...'}</strong>
+      </p>
       <div style={{ marginBottom: '0.75rem', position: 'relative' }}>
         <button
           type="button"

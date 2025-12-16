@@ -21,6 +21,9 @@ function createSocketServer(httpServer) {
     socket.on('start_game', (payload, ack) => handleStartGame(io, socket, payload, ack));
     socket.on('move_player_team', (payload, ack) => handleMovePlayerTeam(io, socket, payload, ack));
     socket.on('submit_answer', (payload, ack) => handleSubmitAnswer(io, socket, payload, ack));
+    socket.on('ping_check', (payload = {}) => {
+      socket.emit('pong_check', { sentAt: payload.sentAt });
+    });
     socket.on('disconnect', (reason) => handleDisconnect(io, socket, reason));
   });
 

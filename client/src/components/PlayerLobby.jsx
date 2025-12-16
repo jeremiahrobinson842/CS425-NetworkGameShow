@@ -14,7 +14,8 @@ function PlayerLobby({
   handleLeaveGame,
   isTeamMode,
   lobbyTeams,
-  players
+  players,
+  latencyMs
 }) {
   return (
     <section
@@ -26,6 +27,9 @@ function PlayerLobby({
       }}
     >
       <h2>Player Join</h2>
+      <p style={{ marginTop: '0.25rem', marginBottom: '0.75rem' }}>
+        Latency: <strong>{latencyMs != null ? `${latencyMs} ms` : '...'}</strong>
+      </p>
       <div style={{ marginBottom: '0.75rem', position: 'relative' }}>
         <button
           type="button"

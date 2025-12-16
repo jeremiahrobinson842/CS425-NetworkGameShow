@@ -26,6 +26,7 @@ export function useGameLogic() {
   const [selectedTeamId, setSelectedTeamId] = useState(1);
   const [players, setPlayers] = useState([]);
   const [teams, setTeams] = useState([]);
+  const [latencyMs, setLatencyMs] = useState(null);
 
   // Question settings
   const [questionPreset, setQuestionPreset] = useState('normal');
@@ -50,6 +51,8 @@ export function useGameLogic() {
   const countdownIntervalRef = useRef(null);
   const betweenRoundIntervalRef = useRef(null);
   const gameEndTimeoutRef = useRef(null);
+  const pingIntervalRef = useRef(null);
+  const latencySamplesRef = useRef([]);
 
   // Derived flags
   const activePlayerCount = players.length;
@@ -228,8 +231,37 @@ export function useGameLogic() {
       }, 1000);
     };
 
-    socket.on('connect', () => console.log('Socket connected:', socket.id));
-    socket.on('disconnect', (reason) => console.log('Socket disconnected:', reason));
+    const sendPing = () => {
+      if (!socket.connected) return;
+      socket.emit('ping_check', { sentAt: Date.now() });
+    };
+
+    const onPong = (payload = {}) => {
+      if (!payload.sentAt) return;
+      const rtt = Date.now() - Number(payload.sentAt);
+      const samples = latencySamplesRef.current;
+      samples.push(rtt);
+      if (samples.length > 10) samples.shift();
+      const avg = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
+      setLatencyMs(avg);
+    };
+
+    socket.on('connect', () => {
+      console.log('Socket connected:', socket.id);
+      sendPing();
+      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = setInterval(sendPing, 5000);
+    });
+    socket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+      latencySamplesRef.current = [];
+      setLatencyMs(null);
+    });
+    socket.on('pong_check', onPong);
     socket.on('player_joined', syncLobby);
     socket.on('player_list', syncLobby);
     socket.on('game_starting', onGameStarting);
@@ -241,6 +273,7 @@ export function useGameLogic() {
     return () => {
       socket.off('connect');
       socket.off('disconnect');
+      socket.off('pong_check', onPong);
       socket.off('player_joined', syncLobby);
       socket.off('player_list', syncLobby);
       socket.off('game_starting', onGameStarting);
@@ -253,6 +286,7 @@ export function useGameLogic() {
         if (ref.current) clearInterval(ref.current);
       });
       if (gameEndTimeoutRef.current) clearTimeout(gameEndTimeoutRef.current);
+      if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
     };
   }, [socket, username]);
 
@@ -451,6 +485,10 @@ export function useGameLogic() {
         ref.current = null;
       }
     });
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
 
     socket.disconnect();
     setTimeout(() => {
@@ -479,6 +517,7 @@ export function useGameLogic() {
     setQuestionPreset('normal');
     setQuestionCount(presetQuestionCounts.normal);
     setCustomQuestionCount('');
+    setLatencyMs(null);
     if (gameEndTimeoutRef.current) {
       clearTimeout(gameEndTimeoutRef.current);
       gameEndTimeoutRef.current = null;
@@ -604,6 +643,7 @@ export function useGameLogic() {
     allowTeamDrag,
     teamReadiness,
     questionNumberLabel,
+    latencyMs,
 
     // setters
     setView,

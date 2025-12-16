@@ -66,7 +66,8 @@ function GameView({
   myTeamId,
   username,
   formattedFinalLeaderboard,
-  totalQuestions
+  totalQuestions,
+  latencyMs
 }) {
   return (
     <section
@@ -83,6 +84,9 @@ function GameView({
           Leave Game
         </button>
       </div>
+      <p style={{ margin: '0.35rem 0' }}>
+        Latency: <strong>{latencyMs != null ? `${latencyMs} ms` : '...'}</strong>
+      </p>
 
       {countdown !== null && !question && !gameEnded && (
         <p>Game starting in: {countdown}...</p>

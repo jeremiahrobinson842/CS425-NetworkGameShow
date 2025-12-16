@@ -1,0 +1,31 @@
+config:
+  target: "http://localhost:5174"
+  phases:
+    - duration: 45
+      arrivalRate: 5
+      name: "Sustain at least 5 concurrent joiners"
+  engines:
+    socketio:
+      transports: ["websocket"]
+  plugins:
+    expect: {}
+  processor: "./processor.js"
+
+scenarios:
+  - name: "Players join lobby"
+    engine: "socketio"
+    flow:
+      - function: "ensureGameCode"
+      - think: 1
+      - emit:
+          channel: "join_game"
+          data:
+            gameCode: "{{ gameCode }}"
+            username: "player-{{ $randomNumber(1000, 9999) }}"
+            isHost: false
+          ack:
+            match:
+              json: "$.ok"
+              value: true
+            timeout: 2000
+      - think: 5

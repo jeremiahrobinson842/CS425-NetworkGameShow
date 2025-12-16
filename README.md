@@ -249,3 +249,20 @@ Only remove once updates are merged with main and functionality is verified via 
 git branch -d <branch-name>
 git push origin --delete <branch-name>
 ```
+
+
+### Load Testing (Artillery)
+
+- Install Artillery locally if needed: `npm install -g artillery@latest` (or run with `npx artillery` to avoid a global install).
+- Ensure the backend is running and reachable (defaults to http://localhost:5174; override with `ARTILLERY_TARGET`).
+- Run the socket.io join test with ~5 concurrent players for 45s and capture response times:
+```
+ARTILLERY_TARGET=http://localhost:4000 npx artillery run artillery/artillery-test.yml --output artillery/report.json
+```
+- Reuse an existing lobby instead of auto-creating one by setting `GAME_CODE=<your code>` (otherwise the processor will call `POST /api/games/create`).
+- View the latency/response time summary from the CLI output or render the JSON to HTML:
+```
+npx artillery report artillery/report.json -o artillery/report.html
+```
+
+The scenario measures the `join_game` ack latency while keeping at least five concurrent joiners during the phase.
