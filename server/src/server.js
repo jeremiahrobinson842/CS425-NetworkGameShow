@@ -12,9 +12,11 @@ function startServer() {
 
   createSocketServer(httpServer);
 
-  httpServer.listen(PORT, () => {
+  const listenPort = process.env.PORT || PORT || 4000;
+
+  httpServer.listen(listenPort, () => {
     logger.info('Network Game Show server is running', {
-      port: PORT,
+      port: listenPort,
       env: NODE_ENV
     });
   });

@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: networkgameshow-backend
+    env: node
+    rootDir: server
+    buildCommand: npm ci
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DATABASE_URL
+        sync: false
