@@ -18,7 +18,15 @@ const MEASURE_LATENCY = process.env.MEASURE_LATENCY !== 'false'; // default on
 const ANSWER = (process.env.ANSWER || 'A').trim() || 'A';
 const GAME_CODE = process.env.GAME_CODE ? String(process.env.GAME_CODE).trim().toUpperCase() : null;
 const TEST_DURATION_MS = Number(process.env.TEST_DURATION_MS || 45000);
+const fs = require('fs');
+const path = require('path');
 
+const OUT_FILE = process.env.OUT_FILE || path.join(__dirname, 'load-test.log');
+function log(...args) {
+  const line = args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' ');
+  console.log(line);
+  fs.appendFileSync(OUT_FILE, line + '\n');
+}
 async function createGameViaHttp() {
   const res = await fetch(`${HTTP_BASE}/api/games/create`, {
     method: 'POST',
