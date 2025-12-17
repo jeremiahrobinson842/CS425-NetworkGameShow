@@ -1,7 +1,7 @@
 ﻿// load-test.js
 // Quick Socket.io load test without Artillery.
 // Usage:
-//   HTTP_BASE=http://localhost:5174 WS_BASE=http://localhost:5174 CLIENTS=50 node load-test.js
+//   HTTP_BASE=http://localhost:5174 WS_BASE=http://localhost:5174 CLIENTS=10 node load-test.js
 // Optional envs: MODE, QUESTION_COUNT, TIME_PER_Q, HOST_START_DELAY_MS, SPREAD_JOIN_MS, ANSWER, GAME_CODE, TEST_DURATION_MS.
 
 const { io } = require('./client/node_modules/socket.io-client');
