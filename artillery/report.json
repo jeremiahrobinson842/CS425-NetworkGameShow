@@ -1,0 +1,52 @@
+{
+  "aggregate": {
+    "counters": {
+      "vusers.created_by_name.Players join lobby": 10,
+      "vusers.created": 10,
+      "errors.Error: xhr poll error": 10,
+      "vusers.failed": 10
+    },
+    "rates": {},
+    "firstCounterAt": 1765923796296,
+    "lastCounterAt": 1765923809153,
+    "firstMetricAt": 1765923796296,
+    "lastMetricAt": 1765923809153,
+    "period": 1765923800000,
+    "summaries": {},
+    "histograms": {}
+  },
+  "intermediate": [
+    {
+      "counters": {
+        "vusers.created_by_name.Players join lobby": 4,
+        "vusers.created": 4,
+        "errors.Error: xhr poll error": 1,
+        "vusers.failed": 1
+      },
+      "rates": {},
+      "firstCounterAt": 1765923796296,
+      "lastCounterAt": 1765923799295,
+      "firstMetricAt": 1765923796296,
+      "lastMetricAt": 1765923799295,
+      "period": "1765923790000",
+      "summaries": {},
+      "histograms": {}
+    },
+    {
+      "counters": {
+        "errors.Error: xhr poll error": 9,
+        "vusers.failed": 9,
+        "vusers.created_by_name.Players join lobby": 6,
+        "vusers.created": 6
+      },
+      "rates": {},
+      "firstCounterAt": 1765923800030,
+      "lastCounterAt": 1765923809153,
+      "firstMetricAt": 1765923800030,
+      "lastMetricAt": 1765923809153,
+      "period": "1765923800000",
+      "summaries": {},
+      "histograms": {}
+    }
+  ]
+}
