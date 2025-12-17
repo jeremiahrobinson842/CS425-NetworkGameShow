@@ -35,7 +35,6 @@ const PORT = Number(process.env.PORT) || 5174;
 
 /**
  * PostgreSQL connection string.
- * Must be provided for any DB operations.
  * @type {string}
  */
 const DATABASE_URL = process.env.DATABASE_URL || '';

@@ -21,7 +21,7 @@ function App() {
     selectedTeamId,
     setSelectedTeamId,
     players,
-    teams, // reserved if needed downstream
+    teams,
     questionPreset,
     questionCount,
     customQuestionCount,

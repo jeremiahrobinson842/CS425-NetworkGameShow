@@ -112,7 +112,7 @@ function buildLeaderboard(room, allowedQuestionIds) {
 
     return {
       rank: 0, // set after sort
-      username: team.teamName, // maintain compatibility with existing UI
+      username: team.teamName,
       teamName: team.teamName,
       teamId: team.teamId,
       totalScore: team.totalScore,

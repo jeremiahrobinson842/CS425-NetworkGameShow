@@ -2,7 +2,6 @@
 
 /**
  * PostgreSQL connection configuration using explicit fields.
- * This avoids issues with DATABASE_URL when passwords contain special characters.
  */
 
 const { Pool } = require('pg');
@@ -13,10 +12,10 @@ const { NODE_ENV, DATABASE_URL } = require('./env');
 let poolConfig;
 
 if (DATABASE_URL && DATABASE_URL.trim() !== '') {
-  // If you ever want to use a URL in production, you can.
+
   poolConfig = { connectionString: DATABASE_URL };
 } else {
-  // Explicit config avoids URL-escaping problems
+
   poolConfig = {
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || '',

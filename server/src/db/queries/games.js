@@ -20,8 +20,6 @@ const logger = require('../../utils/logger');
 /**
  * Generates a random 6-character alphanumeric game code.
  *
- * This code is intended to be easy for humans to read and type.
- *
  * @returns {string} 6-character game code (e.g., "A3F9K2").
  */
 function generateGameCode() {
@@ -38,9 +36,9 @@ function generateGameCode() {
  * Inserts a new game into the database.
  *
  * @param {object} options - Settings for the game.
- * @param {string} options.mode - Game mode (e.g., 'classic').
- * @param {number} options.questionCount - Number of questions (5-20).
- * @param {number} options.timePerQuestion - Time limit per question (10-30 seconds).
+ * @param {string} options.mode - Game mode
+ * @param {number} options.questionCount - Number of questions
+ * @param {number} options.timePerQuestion - Time limit per question
  * @returns {Promise<{ id: number, code: string }>} The created game's id and code.
  */
 async function createGame({ mode, questionCount, timePerQuestion }) {

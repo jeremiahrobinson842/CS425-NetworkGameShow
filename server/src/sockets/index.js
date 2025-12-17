@@ -9,7 +9,7 @@ const { handleMovePlayerTeam } = require('./handlers/movePlayerTeam');
 function createSocketServer(httpServer) {
   const io = new Server(httpServer, {
     cors: {
-      origin: '*', // TODO: tighten this in production
+      origin: '*', 
       methods: ['GET', 'POST']
     }
   });

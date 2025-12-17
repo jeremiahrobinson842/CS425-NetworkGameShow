@@ -7,7 +7,7 @@
 --   - game_participants
 --   - answers
 --
--- Run this once to create the schema:
+-- Create the schema:
 --   psql -d your_db_name -f sql/schema.sql
 
 CREATE TABLE IF NOT EXISTS questions (

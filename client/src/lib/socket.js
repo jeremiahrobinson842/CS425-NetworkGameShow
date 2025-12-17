@@ -9,9 +9,7 @@ const inferredOrigin =
 let socket;
 
 /**
- * Get a singleton Socket.io client instance.
- *
- * This avoids creating multiple WebSocket connections
+ * Get a singleton Socket.io client instance to avoid creating multiple WebSocket connections
  * every time a component renders.
  */
 export function getSocket() {

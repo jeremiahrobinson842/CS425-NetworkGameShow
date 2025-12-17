@@ -6,7 +6,7 @@ const inferredOrigin =
   typeof window !== 'undefined' && window.location?.origin
     ? window.location.origin
     : null;
-// Prefer explicit env; fallback to your tunnel; last resort: current host.
+    
 const apiBase =
   import.meta.env.VITE_API_BASE ||
   'https://unsecretarial-maribeth-leerier.ngrok-free.dev' ||

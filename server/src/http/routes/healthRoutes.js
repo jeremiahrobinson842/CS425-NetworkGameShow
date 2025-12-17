@@ -23,7 +23,7 @@ const logger = require('../../utils/logger');
  * GET /health
  *
  * Returns a basic JSON payload indicating that the server is running.
- * Also logs the health check request at debug level so we can verify
+ * Also logs the health check request at debug level to verify
  * that routing and logging are wired correctly.
  *
  * @name GET/health
