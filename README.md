@@ -1,268 +1,59 @@
-# CS425-NetworkGameShow
+# Network Game Show
 
-## Branch Strategy
+Real-time multiplayer trivia game with host/player flows, synchronized questions, WebSocket-driven scoring, and in-memory room orchestration backed by PostgreSQL for persistence. Hosts create lobbies, players join via game codes, and the server drives question cadence, answer scoring, and leaderboards in real time.
 
-We use a multi-branch model for safe collaboration:
+## Tech stack with versions
+- Node.js 24.11.1
+- Express 4.22.x
+- Socket.io (server) 4.8.1
+- React 18.3.1 + Vite 7.2.6
+- Socket.io (client) 4.8.1
+- PostgreSQL (tested with `pg` 8.16.3)
+- Artillery 2.0.27 (optional load testing)
 
-### main
-- Production-ready branch.
-- Only merged into through Pull Requests from `dev`.
-- Always stable and demo-ready.
+## Ports and defaults
+- Backend HTTP: 5174 (override with `PORT`)
+- Frontend dev (Vite): 5173 (override via Vite config or `VITE_PORT`)
+- API base: `http://localhost:5174` unless `VITE_API_BASE` is set
+- WebSocket base: `http://localhost:5174` unless `VITE_WS_BASE` is set
 
-### dev
-- Integration branch for ongoing work.
-- All feature branches merge here first.
-- After testing and review, dev is merged into main.
+## Setup instructions (step-by-step)
+1) Install Node 20+ and PostgreSQL locally.
+2) Create the DB: `createdb network_game_show` (or use your GUI).
+3) Apply schema: `psql "postgres://<user>:<pass>@localhost:5432/network_game_show" -f sql/schema.sql` (optional seed: `sql/seed_questions.sql`).
+4) Copy `server/.env.example` to `server/.env`; set `DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/network_game_show` (or fill `DB_*` vars).
+5) Install backend deps: `cd server && npm install`.
+6) Install frontend deps: `cd client && npm install`.
+7) (Optional) In `client/.env`, set `VITE_API_BASE` and `VITE_WS_BASE` if the backend is not on `http://localhost:5174`.
 
-### feature/bug branch
-- All work to be done here
-- Work only in the scope of the feature that is being implemented or bug that is being fixed
-- Test before merging into dev
+## How to run application
+- Backend (dev): `cd server && DATABASE_URL=... npm run dev` (listens on 5174).
+- Frontend (dev): `cd client && npm run dev` (Vite on 5173; honors `VITE_API_BASE`/`VITE_WS_BASE`).
+- Load test (optional): repo root `node load-test.js` (set `CLIENTS`, `ANSWER`, `HTTP_BASE`, `WS_BASE`; backend + DB must be running).
 
-### Workflow
-1. Developer creates feature branch from their personal branch.
-2. They push commits and open a Pull Request into `dev`.
-3. After team review & testing, `dev` is merged into `main`.
+## API surface summary
+- POST `/api/games/create`  
+  Body: `{ mode: "classic"|"team", questionCount: int 1-50, timePerQuestion: int 10-30 }`  
+  Response: `{ gameId, gameCode }`
+- GET `/api/questions/random?count=N`  
+  Response: `[{ id, category, text, option_a, option_b, option_c, option_d, correct_option, explanation, difficulty }]`
+- Socket.io (client ↔ server):  
+  - Emit: `join_game` `{ gameCode, username, isHost, teamId?, teamCount? }` → ack `{ ok, players, playerCount, teams, teamCount, mode }`  
+  - Emit: `start_game` (host) `{ gameCode }` → ack `{ ok }`  
+  - Emit: `submit_answer` `{ gameCode, questionId, answer }` → ack includes scoring fields  
+  - Emit: `move_player_team` (host/team mode)  
+  - Emit: `ping_check` → server replies `pong_check` (latency)  
+  - Server emits: `game_starting`, `question`, `question_ended`, `game_ended`, `player_joined`/`player_list`, `host_left`
 
-This model minimizes merge conflicts, keeps `main` stable, and organizes ownership clearly.
+## Team members & roles
+- Jeremiah Robinson - Product Owner
+- Archie Rauenhorst - Developer
+- Adam Taylor - Developer
 
-### Continuous Integration (CI)
-The project includes a GitHub Actions workflow (.github/workflows/ci.yml) that runs automatically on new commits and pull requests.
-
-### CI Tasks
-The pipeline performs:
-- Backend dependency installation
-- Backend syntax validation
-- Backend start-up check (to ensure no missing files)
-- Client dependency installation
-- Client build test (ensures Vite can compile)
-
-### CI Status Rules
-- A Pull Request cannot be merged if CI fails.
-- Feature branches should be tested locally before opening a PR.
-- Fixing CI errors may require updating:
-    - package.json
-    - missing files
-    - broken imports
-    - invalid JSON formatting
-- Green CI on dev indicates the project is safe to merge into main.
-
-### Setup Instructions
-1. Clone the Repository
-```
-git clone https://github.com/jeremiahrobinson842/CS425-NetworkGameShow
-cd NetworkGameShow
-```
-
-### Backend Setup (server/)
-2. Install Dependencies
-```
-cd server
-npm install
-```
-
-3. Environment Variables
-
-Create server/.env:
-
-```
-PG_USER=postgres
-PG_PASSWORD="your-password"
-PG_HOST=localhost
-PG_PORT=5432
-PG_DATABASE=network_game_show
-NODE_ENV=development
-PORT=4000
-```
-
-Ensure passwords with special characters are inside quotes.
-
-### Database Setup
-4. Create Database
-
-In PowerShell:
-```
-psql -U postgres
-```
-
-Inside psql:
-```
-CREATE DATABASE network_game_show;
-\c network_game_show;
-```
-5. Run Schema
-```
-\i 'C:/path/to/sql/schema.sql'
-```
-6. Seed Questions
-```
-\i 'C:/path/to/sql/seed_questions.sql'
-```
-
-You should see:
-```
-SELECT COUNT(*) FROM questions;
- count 
--------
-   50
-```
-
-### Frontend Setup (client/)
-7. Install Dependencies
-```
-cd client
-npm install
-```
-
-8. Start Frontend
-```
-npm run dev
-```
-
-Local dev server:
-```
-http://localhost:5173
-```
-
-### Running the Full Application
-1. Start Backend
-```
-cd server
-npm run dev
-```
-
-2. Start Frontend
-```
-cd client
-npm run dev
-```
-
-The frontend automatically connects to:
-```
-http://localhost:4000
-```
-
-### Testing Procedures
-#### Backend API Tests (Powershell)
-
-Health Check 
-```
-(Invoke-WebRequest http://localhost:4000/health).Content
-```
-
-#### Create Game
-```
-$body = '{"mode":"classic","questionCount":10,"timePerQuestion":20}'
-Invoke-WebRequest -Method POST `
-  -Uri http://localhost:4000/api/games/create `
-  -ContentType "application/json" `
-  -Body $body | Select-Object -ExpandProperty Content
-```
-
-#### Random Questions
-```
-(Invoke-WebRequest "http://localhost:4000/api/questions/random?count=5").Content
-```
-
-### Real-Time WebSocket Testing
-1. Open frontend twice
-- One tab for Host
-- One tab for Player
-
-2. Host creates game
-- Server logs show creation
-- Host enters WebSocket room
-
-3. Player joins game
-- Server logs player_joined
-- Host lobby updates instantly
-
-4. Host presses Start Game
-- Both clients see synchronized countdown
-- Both receive same question at the same time
-- Timer matches server’s timestamp
-
-Everything in Week 2 objectives has been verified and is functional.
-
-### Week 1 Progress Summary:
-
-- Github repo + branch strategy
-- Github Actions CI
-- Node/Express backend skeleton
-- React/Vite frontend scaffold
-- PostgreSQL schema + seed
-- API routes implemented & tested
-- 25-question database seeded
-- Wireframes created
-- All local & CI tests passing
-
-### Week 2 Progress Summary:
-
-- Socket.io backend integration
-- Socket.io frontend integration
-- Room management
-- Host lobby & player lobby
-- Real-time join/leave updates
-- Game start countdown
-- Real-time synchronized questions
-- Server-driven timers
-- Working Host and Player flows
-
-### Contribution Guidelines
-#### Creating a Feature Branch
-```
-git checkout <branch-name>
-git pull
-git checkout -b <branch-name>
-```
-
-#### Committing Work
-```
-git add .
-git commit -m "Short description of feature or fix"
-```
-
-#### Pushing
-```
-git push -u origin <branch-name>
-```
-
-#### Merging with dev branch
-```
-git checkout dev
-git merge <feature-branch>
-git push
-```
-Test the dev branch for full functionality prior to merging with `main` branch
-
-#### Merging with main branch
-Resolve all conflicts if necessary
-```
-git checkout main
-git merge dev
-git push
-```
-
-#### Remove task branch
-Only remove once updates are merged with main and functionality is verified via testing and CI
-```
-git branch -d <branch-name>
-git push origin --delete <branch-name>
-```
-
-
-### Load Testing (Artillery)
-
-- Install Artillery locally if needed: `npm install -g artillery@latest` (or run with `npx artillery` to avoid a global install).
-- Ensure the backend is running and reachable (defaults to http://localhost:5174; override with `ARTILLERY_TARGET`).
-- Run the socket.io join test (defaults: 5 joiners sustained for 45s):
-```
-npm run load:socket
-```
-  - Override defaults with env vars: `ARTILLERY_TARGET`, `ARTILLERY_DURATION`, `ARTILLERY_ARRIVAL_RATE`, `GAME_CODE` (to reuse an existing lobby), `GAME_MODE`, `QUESTION_COUNT`, `TIME_PER_QUESTION`.
-- View the latency/response time summary from the CLI output or render the JSON to HTML:
-```
-npm run load:report
-```
-
-The scenario measures the `join_game` ack latency while keeping the desired concurrent joiners during the phase; if no `GAME_CODE` is supplied, the processor will create a lobby via `POST /api/games/create`.
+## Known bugs/limitations
+- No authentication/session; game access is only gated by game codes.
+- Socket.io CORS is permissive (`origin: '*'`) in dev.
+- Load-test script creates games via HTTP and needs DB & schema applied; without DB it will fail.
+- Load-test script initially ran, but later ran into errors.
+- Player disconnect and reconnect is not implemented.
+- Cannot reliably run multiple games at once; server has trouble differentiating clocks of each game.
